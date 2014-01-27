@@ -112,7 +112,7 @@ class LineStream
                 break;
             case EncodingType.UTF8:
                 while (_pos < _len && _spos < _slen) {
-                    int bleft = _len - _pos;
+                    ptrdiff_t bleft = _len - _pos;
                     int bread = 0;
                     dchar ch0 = _buf[_pos];
                     dchar ch = 0;
@@ -229,7 +229,7 @@ class LineStream
         }
     }
     // returns line, or null for end of file
-    public dstring readLine() {
+    public dchar[] readLine() {
         _line++;
         dchar lastChar = 0;
         for (;;) {
@@ -254,8 +254,8 @@ class LineStream
             if (lastChar == 0x0D || lastChar == 0x0A  || lastChar == 0x2028  || lastChar == 0x2029 || _eof)
                 break;
         }
-        int lstart = _lstart;
-        int lend = _spos;
+        size_t lstart = _lstart;
+        size_t lend = _spos;
         writeln("buffer: " ~ to!string(lstart) ~ " : " ~ to!string(lend));
         if (lastChar == 0x0D || lastChar == 0x0A  || lastChar == 0x2028  || lastChar == 0x2029)
             lend = _spos - 1;
@@ -264,9 +264,9 @@ class LineStream
             return null; // eof
         _lstart = _spos;
         // return current line w/o 
-        if (lstart == lend)
-            return ""d;
-        return _sbuf[lstart .. lend].dup;
+//        if (lstart == lend)
+//            return ""d;
+        return _sbuf[cast(int)lstart .. cast(int)lend];
     }
 }
 
@@ -281,7 +281,7 @@ unittest {
     try {
         LineStream lines = new LineStream(f, fname);
 	    for (;;) {
-		    dstring s = lines.readLine();
+		    dchar[] s = lines.readLine();
 	        if (s is null)
 	            break;
 		    writeln("line " ~ to!string(lines.line()) ~ ":" ~ toUTF8(s));
