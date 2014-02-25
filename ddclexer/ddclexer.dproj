@@ -49,6 +49,7 @@
     <Compile Include="src\ddc\lexer\LineStream.d" />
     <Compile Include="src\ddc\lexer\exceptions.d" />
     <Compile Include="src\ddc\main.d" />
+    <Compile Include="src\ddc\lexer\Tokenizer.d" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="src\" />

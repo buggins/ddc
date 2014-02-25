@@ -219,7 +219,6 @@ class LineStream {
         if (buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF) {
 			return new Utf8LineStream(stream, filename, buf, len);
         } else if (buf[0] == 0x00 && buf[1] == 0x00 && buf[2] == 0xFE && buf[3] == 0xFF) {
-			writeln("utf-32be encoding detected");
 			return new Utf32beLineStream(stream, filename, buf, len);
         } else if (buf[0] == 0xFF && buf[1] == 0xFE && buf[2] == 0x00 && buf[3] == 0x00) {
 			return new Utf32leLineStream(stream, filename, buf, len);
@@ -552,36 +551,36 @@ class Utf32leLineStream : LineStream {
 
 
 unittest {
-    import std.stdio;
-    import std.conv;
-    import std.utf;
-	assert("" == null);
-	assert("" !is null);
-    //string fname = "C:\\projects\\d\\ddc\\ddclexer\\src\\ddc\\lexer\\LineStream.d";
-    //string fname = "/home/lve/src/d/ddc/ddclexer/" ~ __FILE__; //"/home/lve/src/d/ddc/ddclexer/src/ddc/lexer/Lexer.d";
-    //string fname = "/home/lve/src/d/ddc/ddclexer/tests/LineStream_utf8.d";
-    //string fname = "/home/lve/src/d/ddc/ddclexer/tests/LineStream_utf16be.d";
-    //string fname = "/home/lve/src/d/ddc/ddclexer/tests/LineStream_utf16le.d";
-    //string fname = "/home/lve/src/d/ddc/ddclexer/tests/LineStream_utf32be.d";
-    string fname = "/home/lve/src/d/ddc/ddclexer/tests/LineStream_utf32le.d";
-	writeln("opening file");
-    std.stream.File f = new std.stream.File(fname);
-	scope(exit) { f.close(); }
-    try {
-        LineStream lines = LineStream.create(f, fname);
-	    for (;;) {
-		    wchar[] s = lines.readLine();
-	        if (s is null)
-	            break;
-		    writeln("line " ~ to!string(lines.line()) ~ ":" ~ toUTF8(s));
+	static if (false) {
+	    import std.stdio;
+	    import std.conv;
+	    import std.utf;
+	    //string fname = "C:\\projects\\d\\ddc\\ddclexer\\src\\ddc\\lexer\\LineStream.d";
+	    //string fname = "/home/lve/src/d/ddc/ddclexer/" ~ __FILE__; //"/home/lve/src/d/ddc/ddclexer/src/ddc/lexer/Lexer.d";
+	    //string fname = "/home/lve/src/d/ddc/ddclexer/tests/LineStream_utf8.d";
+	    //string fname = "/home/lve/src/d/ddc/ddclexer/tests/LineStream_utf16be.d";
+	    //string fname = "/home/lve/src/d/ddc/ddclexer/tests/LineStream_utf16le.d";
+	    //string fname = "/home/lve/src/d/ddc/ddclexer/tests/LineStream_utf32be.d";
+	    string fname = "/home/lve/src/d/ddc/ddclexer/tests/LineStream_utf32le.d";
+		writeln("opening file");
+	    std.stream.File f = new std.stream.File(fname);
+		scope(exit) { f.close(); }
+	    try {
+	        LineStream lines = LineStream.create(f, fname);
+		    for (;;) {
+			    wchar[] s = lines.readLine();
+		        if (s is null)
+		            break;
+			    writeln("line " ~ to!string(lines.line()) ~ ":" ~ toUTF8(s));
+		    }
+			if (lines.errorCode != 0) {
+				writeln("Error ", lines.errorCode, " ", lines.errorMessage, " -- at line ", lines.errorLine, " position ", lines.errorPos);
+			} else {
+			    writeln("EOF reached");
+			}
+	    } catch (Exception e) {
+	        writeln("Exception " ~ e.toString);
 	    }
-		if (lines.errorCode != 0) {
-			writeln("Error ", lines.errorCode, " ", lines.errorMessage, " -- at line ", lines.errorLine, " position ", lines.errorPos);
-		} else {
-		    writeln("EOF reached");
-		}
-    } catch (Exception e) {
-        writeln("Exception " ~ e.stringof);
-    }
+	}
 }
 // LAST LINE

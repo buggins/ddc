@@ -1,10 +1,11 @@
 module ddc.lexer.Lexer;
+import ddc.lexer.LineStream;
 
 class Lexer
 {
-    this()
+	LineStream _lineStream;
+    this(LineStream lineStream)
     {
-        // Constructor code
+        _lineStream = lineStream;
     }
 }
-
