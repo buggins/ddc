@@ -122,6 +122,22 @@ class StringLiteralToken : Token {
 	}
 }
 
+class IdentToken : Token {
+	wchar[] _text;
+	public @property override wchar[] text() { return _text; }
+	public void setText(wchar[] text) { _text = text; }
+	this() {
+		super(TokenType.IDENTIFIER);
+	}
+	this(string file, uint line, uint pos, wchar[] text) {
+		super(TokenType.IDENTIFIER, file, line, pos);
+		_text = text;
+	}
+	override public Token clone() {
+		return new IdentToken(_file, _line, _pos, _text.dup);
+	}
+}
+
 // shared appender buffer, to avoid extra heap allocations
 struct StringAppender {
 	wchar[] buf;
@@ -171,8 +187,10 @@ class Tokenizer
 	WhiteSpaceToken _sharedWhiteSpaceToken = new WhiteSpaceToken();
 	CommentToken _sharedCommentToken = new CommentToken();
 	StringLiteralToken _sharedStringLiteralToken = new StringLiteralToken();
+	IdentToken _sharedIdentToken = new IdentToken();
 	StringAppender _stringLiteralAppender;
 	StringAppender _commentAppender;
+	StringAppender _identAppender;
 	
 	bool _enableCommentText = true;
 	public void enableCommentText(bool enabled) {
@@ -354,6 +372,23 @@ class Tokenizer
 		return null;
 	}
 	
+	Token processIdent() {
+		_sharedIdentToken.setPos(_line, _pos - 1);
+		_identAppender.reset();
+		uint startPos = _pos - 1;
+		uint endPos = _len;
+		for (uint i = _pos; i < _len; i++) {
+			wchar ch = _lineText[i];
+			if (!(ch == '_' || (ch >= '0' && ch <='9') || isUniversalAlpha(ch))) {
+				endPos = i;
+				break;
+			}
+		}
+		_pos = endPos;
+		_sharedIdentToken.setText(_lineText[startPos .. endPos]);
+		return _sharedIdentToken;
+	}
+	
 	void parserError(string msg) {
 		throw new ParserException(msg, _lineStream.filename, _line, _pos);
 	}
@@ -438,6 +473,7 @@ class Tokenizer
 			return processWysiwygString(ch);
 		if (ch == '_' || isUniversalAlpha(ch)) {
 			// start of identifier or keyword?
+			return processIdent();
 		}
 		return null;
 	}
