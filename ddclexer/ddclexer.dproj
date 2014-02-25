@@ -9,8 +9,7 @@
     <UseDefaultCompiler>true</UseDefaultCompiler>
     <IncrementalLinking>true</IncrementalLinking>
     <PreferOneStepBuild>true</PreferOneStepBuild>
-    <BaseDirectory>.</BaseDirectory>
-    <Compiler>DMD2</Compiler>
+    <Compiler>DMD</Compiler>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -43,6 +42,7 @@
     <Externalconsole>true</Externalconsole>
     <Target>Executable</Target>
     <OutputName>ddclexer</OutputName>
+    <ExtraCompilerArguments>-unittest</ExtraCompilerArguments>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="src\ddc\lexer\Lexer.d" />
