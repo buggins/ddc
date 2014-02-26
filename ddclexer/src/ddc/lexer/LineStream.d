@@ -25,7 +25,7 @@ class LineStream {
 	
 	uint _textPos; // start of text line in text buffer
 	uint _textLen; // position of last filled char in text buffer + 1
-	wchar[] _textBuf; // text buffer
+	dchar[] _textBuf; // text buffer
 	bool _eof; // end of file, no more lines
 	
 	@property string filename() { return _filename; }
@@ -74,14 +74,14 @@ class LineStream {
 	void consumedBytes(uint count) {
 		_pos += count;
 	}
-	
+
 	// reserve text buffer for specified number of characters, and return pointer to first free character in buffer
-	wchar * reserveTextBuf(uint len) {
+	dchar * reserveTextBuf(uint len) {
 		// create new text buffer if necessary
 		if (_textBuf == null) {
 			if (len < TEXT_BUFFER_SIZE)
 				len = TEXT_BUFFER_SIZE;
-			_textBuf = new wchar[len];
+			_textBuf = new dchar[len];
 			return _textBuf.ptr;
 		}
 		uint spaceLeft = cast(uint)_textBuf.length - _textLen;
@@ -90,7 +90,7 @@ class LineStream {
 		// move text to beginning of buffer, if necessary
 		if (_textPos > _textBuf.length / 2) {
 			uint charCount = _textLen - _textPos;
-			wchar * p = _textBuf.ptr;
+			dchar * p = _textBuf.ptr;
 			for (uint i = 0; i < charCount; i++)
 				p[i] = p[i + _textPos];
 			_textLen = charCount;
@@ -123,7 +123,7 @@ class LineStream {
 	abstract uint decodeText();
 	
 	immutable uint LINE_POSITION_UNDEFINED = uint.max;
-	public wchar[] readLine() {
+	public dchar[] readLine() {
 		if (_errorCode != 0) {
 			//writeln("error ", _errorCode, ": ", _errorMessage, " in line ", _errorLine);
 			return null; // error detected
@@ -157,7 +157,7 @@ class LineStream {
 				} 
 			}
 			for (; p < charsLeft; p++) {
-				wchar ch = _textBuf[_textPos + p];
+				dchar ch = _textBuf[_textPos + p];
 				if (ch == 0x0D) {
 					lastchar = p;
 					if (p == charsLeft - 1) {
@@ -169,7 +169,7 @@ class LineStream {
 						}
 						charsLeft = _textLen - _textPos;
 					}
-					wchar ch2 = (p < charsLeft - 1) ? _textBuf[_textPos + p + 1] : 0;
+					dchar ch2 = (p < charsLeft - 1) ? _textBuf[_textPos + p + 1] : 0;
 					if (ch2 == 0x0A)
 						eol = p + 2;
 					else
@@ -204,7 +204,6 @@ class LineStream {
 		return _textBuf[lineStart .. lineEnd];
 	}
 	
-	wchar[] _emptyString;
 	immutable int TEXT_BUFFER_SIZE = 1024;
 	immutable int BYTE_BUFFER_SIZE = 512;
 	immutable int QUARTER_BYTE_BUFFER_SIZE = BYTE_BUFFER_SIZE / 4;
@@ -255,7 +254,7 @@ class AsciiLineStream : LineStream {
 			return 0; // nothing to decode
 		uint len = bytesAvailable;
 		ubyte* b = bytes;
-		wchar* text = reserveTextBuf(len);
+		dchar* text = reserveTextBuf(len);
 		uint i = 0;
 		for (; i < len; i++) {
 			ubyte ch = b[i];
@@ -289,7 +288,7 @@ class Utf8LineStream : LineStream {
 		uint len = bytesAvailable;
 		uint chars = 0;
 		ubyte* b = bytes;
-		wchar* text = reserveTextBuf(len);
+		dchar* text = reserveTextBuf(len);
 		uint i = 0;
 		for (; i < len; i++) {
 			uint ch = 0;
@@ -371,12 +370,12 @@ class Utf8LineStream : LineStream {
                 break;
 			}
 			if (ch < 0x10000) {
-				text[chars++] = cast(wchar)ch;
+				text[chars++] = ch;
 			} else {
 				uint lo = ch & 0x3FF;
 				uint hi = ch >> 10;
-				text[chars++] = cast(wchar)(0xd800 | hi);
-				text[chars++] = cast(wchar)(0xdc00 | lo);
+				text[chars++] = (0xd800 | hi);
+				text[chars++] = (0xdc00 | lo);
 			}
 			i += bread - 1;
 		}
@@ -405,14 +404,14 @@ class Utf16beLineStream : LineStream {
 		uint len = bytesAvailable;
 		uint chars = 0;
 		ubyte* b = bytes;
-		wchar* text = reserveTextBuf(len / 2 + 1);
+		dchar* text = reserveTextBuf(len / 2 + 1);
 		uint i = 0;
 		for (; i < len - 1; i += 2) {
 			uint ch0 = b[i];
 			uint ch1 = b[i + 1];
 			uint ch = (ch0 << 8) | ch1;
 			// TODO: check special cases
-			text[chars++] = cast(wchar)ch;
+			text[chars++] = ch;
 		}
 		consumedBytes(i);
 		appendedText(chars);
@@ -439,14 +438,14 @@ class Utf16leLineStream : LineStream {
 		uint len = bytesAvailable;
 		uint chars = 0;
 		ubyte* b = bytes;
-		wchar* text = reserveTextBuf(len / 2 + 1);
+		dchar* text = reserveTextBuf(len / 2 + 1);
 		uint i = 0;
 		for (; i < len - 1; i += 2) {
 			uint ch0 = b[i];
 			uint ch1 = b[i + 1];
 			uint ch = (ch1 << 8) | ch0;
 			// TODO: check special cases
-			text[chars++] = cast(wchar)ch;
+			text[chars++] = ch;
 		}
 		consumedBytes(i);
 		appendedText(chars);
@@ -473,7 +472,7 @@ class Utf32beLineStream : LineStream {
 		uint len = bytesAvailable;
 		uint chars = 0;
 		ubyte* b = bytes;
-		wchar* text = reserveTextBuf(len / 2 + 1);
+		dchar* text = reserveTextBuf(len / 2 + 1);
 		uint i = 0;
 		for (; i < len - 3; i += 4) {
 			uint ch0 = b[i];
@@ -485,14 +484,7 @@ class Utf32beLineStream : LineStream {
 				invalidCharFlag = true;
                 break;
 			}
-			if (ch < 0x10000) {
-				text[chars++] = cast(wchar)ch;
-			} else {
-				uint lo = ch & 0x3FF;
-				uint hi = ch >> 10;
-				text[chars++] = cast(wchar)(0xd800 | hi);
-				text[chars++] = cast(wchar)(0xdc00 | lo);
-			}
+			text[chars++] = ch;
 		}
 		consumedBytes(i);
 		appendedText(chars);
@@ -519,7 +511,7 @@ class Utf32leLineStream : LineStream {
 		uint len = bytesAvailable;
 		uint chars = 0;
 		ubyte* b = bytes;
-		wchar* text = reserveTextBuf(len / 2 + 1);
+		dchar* text = reserveTextBuf(len / 2 + 1);
 		uint i = 0;
 		for (; i < len - 3; i += 4) {
 			uint ch3 = b[i];
@@ -531,14 +523,7 @@ class Utf32leLineStream : LineStream {
 				invalidCharFlag = true;
                 break;
 			}
-			if (ch < 0x10000) {
-				text[chars++] = cast(wchar)ch;
-			} else {
-				uint lo = ch & 0x3FF;
-				uint hi = ch >> 10;
-				text[chars++] = cast(wchar)(0xd800 | hi);
-				text[chars++] = cast(wchar)(0xdc00 | lo);
-			}
+			text[chars++] = ch;
 		}
 		consumedBytes(i);
 		appendedText(chars);
@@ -568,7 +553,7 @@ unittest {
 	    try {
 	        LineStream lines = LineStream.create(f, fname);
 		    for (;;) {
-			    wchar[] s = lines.readLine();
+			    dchar[] s = lines.readLine();
 		        if (s is null)
 		            break;
 			    writeln("line " ~ to!string(lines.line()) ~ ":" ~ toUTF8(s));

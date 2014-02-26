@@ -28,8 +28,8 @@ class Token {
 	public @property string filename() { return _file; }
 	public @property uint line() { return _line; }
 	public @property uint pos() { return _pos; }
-	public @property wchar[] text() { return null; }
-	public @property wchar literalType() { return 0; }
+	public @property dchar[] text() { return null; }
+	public @property dchar literalType() { return 0; }
 	this(TokenType type) {
 		_type = type;
 	}
@@ -88,13 +88,13 @@ class WhiteSpaceToken : Token {
 // do we need comment text?
 
 class CommentToken : Token {
-	wchar[] _text;
-	public @property override wchar[] text() { return _text; }
-	public @property void text(wchar[] text) { _text = text; }
+	dchar[] _text;
+	public @property override dchar[] text() { return _text; }
+	public @property void text(dchar[] text) { _text = text; }
 	this() {
 		super(TokenType.COMMENT);
 	}
-	this(string file, uint line, uint pos, wchar[] text) {
+	this(string file, uint line, uint pos, dchar[] text) {
 		super(TokenType.COMMENT, file, line, pos);
 		_text = text;
 	}
@@ -104,15 +104,15 @@ class CommentToken : Token {
 }
 
 class StringLiteralToken : Token {
-	wchar[] _text;
-	wchar _literalType;
-	public @property override wchar literalType() { return _literalType; }
-	public @property override wchar[] text() { return _text; }
-	public void setText(wchar[] text, wchar type) { _text = text; _literalType = type; }
+	dchar[] _text;
+	dchar _literalType;
+	public @property override dchar literalType() { return _literalType; }
+	public @property override dchar[] text() { return _text; }
+	public void setText(dchar[] text, dchar type) { _text = text; _literalType = type; }
 	this() {
 		super(TokenType.STRING);
 	}
-	this(string file, uint line, uint pos, wchar[] text, wchar type) {
+	this(string file, uint line, uint pos, dchar[] text, dchar type) {
 		super(TokenType.STRING, file, line, pos);
 		_text = text;
 		_literalType = type;
@@ -123,13 +123,13 @@ class StringLiteralToken : Token {
 }
 
 class IdentToken : Token {
-	wchar[] _text;
-	public @property override wchar[] text() { return _text; }
-	public void setText(wchar[] text) { _text = text; }
+	dchar[] _text;
+	public @property override dchar[] text() { return _text; }
+	public void setText(dchar[] text) { _text = text; }
 	this() {
 		super(TokenType.IDENTIFIER);
 	}
-	this(string file, uint line, uint pos, wchar[] text) {
+	this(string file, uint line, uint pos, dchar[] text) {
 		super(TokenType.IDENTIFIER, file, line, pos);
 		_text = text;
 	}
@@ -140,9 +140,9 @@ class IdentToken : Token {
 
 // shared appender buffer, to avoid extra heap allocations
 struct StringAppender {
-	wchar[] buf;
+	dchar[] buf;
 	uint len;
-	wchar[] get() {
+	dchar[] get() {
 		return buf[0 .. len];
 	}
 	void appendEol() {
@@ -155,7 +155,7 @@ struct StringAppender {
 		buf[len] = '\n';
 		len++;
 	}
-	void append(wchar[] s) {
+	void append(dchar[] s) {
 		if (s.length == 0)
 			return;
 		if (len + s.length > buf.length) {
@@ -175,14 +175,14 @@ struct StringAppender {
 class Tokenizer
 {
 	LineStream _lineStream;
-	wchar[] _lineText;
+	dchar[] _lineText;
 	uint _line; // current line number
 	uint _len; // current line length
 	uint _pos; // current line read position
 	uint _state; // tokenizer state
 	
-	immutable wchar EOF_CHAR = 0x001A;
-	immutable wchar EOL_CHAR = 0x000A;
+	immutable dchar EOF_CHAR = 0x001A;
+	immutable dchar EOL_CHAR = 0x000A;
 	
 	WhiteSpaceToken _sharedWhiteSpaceToken = new WhiteSpaceToken();
 	CommentToken _sharedCommentToken = new CommentToken();
@@ -220,7 +220,7 @@ class Tokenizer
 		return true;
 	}
 	
-	wchar nextChar() {
+	dchar nextChar() {
 		if (_lineText is null) {
 			if (!nextLine()) {
 				return EOF_CHAR;
@@ -231,7 +231,7 @@ class Tokenizer
 		return _lineText[_pos++];
 	}
 	
-	wchar peekChar() {
+	dchar peekChar() {
 		if (_lineText is null) {
 			if (!nextLine()) {
 				return EOF_CHAR;
@@ -247,13 +247,13 @@ class Tokenizer
 		return new EofToken(_lineStream.filename, _line, _pos);
 	}
 	
-	Token processWhiteSpace(wchar firstChar) {
+	Token processWhiteSpace(dchar firstChar) {
 		uint line = _line;
 		uint pos = _pos - 1;
 		for (;;) {
 			uint i = _pos;
 			for (; i < _len; i++) {
-				wchar ch = _lineText[i];
+				dchar ch = _lineText[i];
 				if (!(ch == 0x0020 || ch == 0x0009 || ch == 0x000B || ch == 0x000C))
 					break;
 			}
@@ -315,7 +315,7 @@ class Tokenizer
 	Token processNestedComment() {
 		_sharedCommentToken.setPos(_line, _pos - 1);
 		_commentAppender.reset();
-		wchar[] text;
+		dchar[] text;
 		uint textStart = _pos + 1;
 		int level = 1;
 		for (;;) {
@@ -366,7 +366,7 @@ class Tokenizer
 	}
 	
 	// r"string"   or    `string`
-	Token processWysiwygString(wchar ch) {
+	Token processWysiwygString(dchar ch) {
 		_pos++;
 		// TODO:
 		return null;
@@ -378,7 +378,7 @@ class Tokenizer
 		uint startPos = _pos - 1;
 		uint endPos = _len;
 		for (uint i = _pos; i < _len; i++) {
-			wchar ch = _lineText[i];
+			dchar ch = _lineText[i];
 			if (!(ch == '_' || (ch >= '0' && ch <='9') || isUniversalAlpha(ch))) {
 				endPos = i;
 				break;
@@ -397,7 +397,7 @@ class Tokenizer
 		writeln("processDoubleQuotedString()");
 		_sharedStringLiteralToken.setPos(_line, _pos - 1);
 		_stringLiteralAppender.reset();
-		wchar type = 0;
+		dchar type = 0;
 		for (;;) {
 			uint i = _pos;
 			uint endPos = uint.max;
@@ -421,9 +421,9 @@ class Tokenizer
 				break;
 			}
 		}
-		wchar t = 0;
+		dchar t = 0;
 		if (_pos < _len) {
-			wchar ch = _lineText[_pos];
+			dchar ch = _lineText[_pos];
 			if (ch == 'c' || ch == 'w' || ch == 'd')
 				t = ch;
 		}
@@ -436,7 +436,7 @@ class Tokenizer
 		return _sharedStringLiteralToken;
 	}
 	
-	static bool isUniversalAlpha(wchar ch) {
+	static bool isUniversalAlpha(dchar ch) {
 		if (ch >= 'a' && ch <='z')
 			return true;
 		if (ch >= 'A' && ch <='Z')
@@ -446,7 +446,7 @@ class Tokenizer
 	
 	// returns next token (clone it if you want to store for future usage, otherwise it may be overwritten by further nextToken() calls).
 	Token nextToken() {
-		wchar ch = nextChar();
+		dchar ch = nextChar();
 		if (ch == EOF_CHAR) {
 			return emitEof();
 		}
@@ -454,7 +454,7 @@ class Tokenizer
 			// white space (treat EOL as whitespace, too)
 			return processWhiteSpace(ch);
 		}
-		wchar next = _pos < _len ? _lineText[_pos] : 0;
+		dchar next = _pos < _len ? _lineText[_pos] : 0;
 		if (ch == '/') {
 			if (next == '/')
 				return processOneLineComment();
