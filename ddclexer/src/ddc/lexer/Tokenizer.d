@@ -437,6 +437,73 @@ unittest {
 	}
 }
 
+enum OpCode : ubyte {
+	NONE,       //    no op
+	DIV, 		//    /
+	DIV_EQ, 	//    /=
+	DOT, 		//    .
+	DOT_DOT, 	//    ..
+	DOT_DOT_DOT,//    ...
+	AND, 		//    &
+	AND_EQ, 	//    &=
+	LOG_AND, 	//    &&
+	OR, 		//    |
+	OR_EQ, 		//    |=
+	LOG_OR, 	//    ||
+	MINUS, 		//    -
+	MINUS_EQ, 	//    -=
+	MINUS_MINUS,//    --
+	PLUS, 		//    +
+	PLUS_EQ, 	//    +=
+	PLUS_PLUS, 	//    ++
+	LT, 		//    <
+	LT_EQ, 		//    <=
+	SHL, 		//    <<
+	SHL_EQ, 	//    <<=
+	LT_GT, 		//    <>
+	NE_EQ, 		//    <>=
+	GT, 		//    >
+	GT_EQ, 		//    >=
+	SHR_EQ,		//    >>=
+	ASR_EQ, 	//    >>>=
+	SHR, 		//    >>
+	ASR, 		//    >>>
+	NOT, 		//    !
+	NOT_EQ,		//    !=
+	NOT_LT_GT, 	//    !<>
+	NOT_LT_GT_EQ, //    !<>=
+	NOT_LT, 	//    !<
+	NOT_LT_EQ, 	//    !<=
+	NOT_GT, 	//    !>
+	NOT_GT_EQ, 	//    !>=
+	PAR_OPEN, 	//    (
+	PAR_CLOSE, 	//    )
+	SQ_OPEN, 	//    [
+	SQ_CLOSE, 	//    ]
+	CURL_OPEN, 	//    {
+	CURL_CLOSE, //    }
+	QUEST, 		//    ?
+	COMMA, 		//    ,
+	COLON, 		//    ;
+	SEMICOLON, 	//    :
+	DOLLAR, 	//    $
+	EQ, 		//    =
+	QE_EQ, 		//    ==
+	MUL, 		//    *
+	MUL_EQ, 	//    *=
+	MOD, 	//    %
+	MOD_EQ, //    %=
+	XOR, 		//    ^
+	XOR_EQ, 	//    ^=
+	LOG_XOR, 	//    ^^
+	LOG_XOR_EQ, //    ^^=
+	INV, 		//    ~
+	INV_EQ, 	//    ~=
+	AT, 		//    @
+	EQ_GT, 		//    =>
+	SHARP 		//    #
+};
+
 class Token {
 	protected TokenType _type;
 	protected string _file;
@@ -809,6 +876,146 @@ class Tokenizer
 	
 	void parserError(string msg) {
 		throw new ParserException(msg, _lineStream.filename, _line, _pos);
+	}
+	
+	ubyte detectOp(dchar ch) nothrow {
+		if (ch >= 128)
+			return OpCode.NONE;
+		dchar ch2 = _pos < _len ? _lineText[_pos] : 0;
+		dchar ch3 = _pos < _len - 1 ? _lineText[_pos + 1] : 0;
+		switch(cast(ubyte)ch) {
+			//	DIV, 		//    /
+			//	DIV_EQ, 	//    /=
+			case '/':
+				if (ch2 == '=') {
+					_pos++;
+					return OpCode.DIV_EQ;
+				}
+				return OpCode.DIV;
+			//	DOT, 		//    .
+			//	DOT_DOT, 	//    ..
+			//	DOT_DOT_DOT,//    ...
+			case '.':
+				if (ch2 == '.') {
+					if (ch3 == '.') {
+						_pos += 2;
+						return OpCode.DOT_DOT_DOT;
+					}
+					_pos++;
+					return OpCode.DOT_DOT;
+				}
+				return OpCode.DOT;
+			//	AND, 		//    &
+			//	AND_EQ, 	//    &=
+			//	LOG_AND, 	//    &&
+			case '&':
+				return OpCode.AND;
+			//	OR, 		//    |
+			//	OR_EQ, 		//    |=
+			//	LOG_OR, 	//    ||
+			case '|':
+				return OpCode.OR;
+			//	MINUS, 		//    -
+			//	MINUS_EQ, 	//    -=
+			//	MINUS_MINUS,//    --
+			case '-':
+				return OpCode.MINUS;
+			//	PLUS, 		//    +
+			//	PLUS_EQ, 	//    +=
+			//	PLUS_PLUS, 	//    ++
+			case '+':
+				return OpCode.PLUS;
+			//	LT, 		//    <
+			//	LT_EQ, 		//    <=
+			//	SHL, 		//    <<
+			//	SHL_EQ, 	//    <<=
+			//	LT_GT, 		//    <>
+			//	NE_EQ, 		//    <>=
+			case '<':
+				return OpCode.LT;
+			//	GT, 		//    >
+			//	GT_EQ, 		//    >=
+			//	SHR_EQ		//    >>=
+			//	ASR_EQ, 	//    >>>=
+			//	SHR, 		//    >>
+			//	ASR, 		//    >>>
+			case '>':
+				return OpCode.GT;
+			//	NOT, 		//    !
+			//	NOT_EQ		//    !=
+			//	NOT_LT_GT, 	//    !<>
+			//	NOT_LT_GT_EQ, //    !<>=
+			//	NOT_LT, 	//    !<
+			//	NOT_LT_EQ, 	//    !<=
+			//	NOT_GT, 	//    !>
+			//	NOT_GT_EQ, 	//    !>=
+			case '!':
+				return OpCode.NOT;
+			//	PAR_OPEN, 	//    (
+			case '(':
+				return OpCode.PAR_OPEN;
+			//	PAR_CLOSE, 	//    )
+			case ')':
+				return OpCode.PAR_CLOSE;
+			//	SQ_OPEN, 	//    [
+			case '[':
+				return OpCode.SQ_OPEN;
+			//	SQ_CLOSE, 	//    ]
+			case ']':
+				return OpCode.SQ_CLOSE;
+			//	CURL_OPEN, 	//    {
+			case '{':
+				return OpCode.CURL_OPEN;
+			//	CURL_CLOSE, //    }
+			case '}':
+				return OpCode.CURL_CLOSE;
+			//	QUEST, 		//    ?
+			case '?':
+				return OpCode.QUEST;
+			//	COMMA, 		//    ,
+			case ',':
+				return OpCode.COMMA;
+			//	COLON, 		//    ;
+			case ';':
+				return OpCode.COLON;
+			//	SEMICOLON, 	//    :
+			case ':':
+				return OpCode.SEMICOLON;
+			//	DOLLAR, 	//    $
+			case '$':
+				return OpCode.DOLLAR;
+			//	EQ, 		//    =
+			//	QE_EQ, 		//    ==
+			//	EQ_GT, 		//    =>
+			case '=':
+				return OpCode.EQ;
+			//	MUL, 		//    *
+			//	MUL_EQ, 	//    *=
+			case '*':
+				return OpCode.MUL;
+			//	MOD, 	//    %
+			//	MOD_EQ, //    %=
+			case '%':
+				return OpCode.MOD;
+			//	XOR, 		//    ^
+			//	XOR_EQ, 	//    ^=
+			//	LOG_XOR, 	//    ^^
+			//	LOG_XOR_EQ, //    ^^=
+			case '^':
+				return OpCode.XOR;
+			//	INV, 		//    ~
+			//	INV_EQ, 	//    ~=
+			case '~':
+				return OpCode.INV;
+			//	AT, 		//    @
+			case '@':
+				return OpCode.AT;
+			//	SHARP 		//    #
+			case '#':
+				return OpCode.SHARP;
+			default:
+				return OpCode.NONE;
+		}
 	}
 	
 	Token processDoubleQuotedOrWysiwygString(dchar delimiter) {
