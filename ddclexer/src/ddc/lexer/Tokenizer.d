@@ -504,6 +504,77 @@ enum OpCode : ubyte {
 	SHARP 		//    #
 };
 
+immutable dstring[] OP_CODE_STRINGS = [
+	"",
+	"/",
+	"/=",
+	".",
+	"..",
+	"...",
+	"&",
+	"&=",
+	"&&",
+	"|",
+	"|=",
+	"||",
+	"-",
+	"-=",
+	"--",
+	"+",
+	"+=",
+	"++",
+	"<",
+	"<=",
+	"<<",
+	"<<=",
+	"<>",
+	"<>=",
+	">",
+	">=",
+	">>=",
+	">>>=",
+	">>",
+	">>>",
+	"!",
+	"!=",
+	"!<>",
+	"!<>=",
+	"!<",
+	"!<=",
+	"!>",
+	"!>=",
+	"(",
+	")",
+	"[",
+	"]",
+	"{",
+	"}",
+	"?",
+	",",
+	";",
+	":",
+	"$",
+	"=",
+	"==",
+	"*",
+	"*=",
+	"%",
+	"%=",
+	"^",
+	"^=",
+	"^^",
+	"^^=",
+	"~",
+	"~=",
+	"@",
+	"=>",
+	"#"
+];
+	
+dstring getOpNameD(OpCode op) pure nothrow {
+	return OP_CODE_STRINGS[op];
+};
+
 class Token {
 	protected TokenType _type;
 	protected string _file;
@@ -515,6 +586,7 @@ class Token {
 	public @property uint pos() { return _pos; }
 	public @property dchar[] text() { return null; }
 	public @property dchar literalType() { return 0; }
+	public @property OpCode opCode() { return OpCode.NONE; }
 	this(TokenType type) {
 		_type = type;
 	}
@@ -567,6 +639,22 @@ class WhiteSpaceToken : Token {
 	}
 	override public Token clone() {
 		return new WhiteSpaceToken(_file, _line, _pos);
+	}
+}
+
+class OpToken : Token {
+	OpCode _op;
+	public @property override OpCode opCode() { return _op; }
+	public @property void opCode(OpCode op) { _op = op; }
+	public @property override dchar[] text() { return cast(dchar[])getOpNameD(_op); }
+	this() {
+		super(TokenType.OP);
+	}
+	this(string file, uint line, uint pos) {
+		super(TokenType.OP, file, line, pos);
+	}
+	override public Token clone() {
+		return new OpToken(_file, _line, _pos);
 	}
 }
 
@@ -673,6 +761,7 @@ class Tokenizer
 	CommentToken _sharedCommentToken = new CommentToken();
 	StringLiteralToken _sharedStringLiteralToken = new StringLiteralToken();
 	IdentToken _sharedIdentToken = new IdentToken();
+	OpToken _sharedOpToken = new OpToken();
 	StringAppender _stringLiteralAppender;
 	StringAppender _commentAppender;
 	StringAppender _identAppender;
@@ -687,6 +776,8 @@ class Tokenizer
 		_sharedWhiteSpaceToken.setFile(_lineStream.filename);
 		_sharedCommentToken.setFile(_lineStream.filename);
 		_sharedStringLiteralToken.setFile(_lineStream.filename);
+		_sharedIdentToken.setFile(_lineStream.filename);
+		_sharedOpToken.setFile(_lineStream.filename);
 	}
 	
 	// fetch next line from source stream
@@ -878,7 +969,7 @@ class Tokenizer
 		throw new ParserException(msg, _lineStream.filename, _line, _pos);
 	}
 	
-	ubyte detectOp(dchar ch) nothrow {
+	OpCode detectOp(dchar ch) nothrow {
 		if (ch >= 128)
 			return OpCode.NONE;
 		dchar ch2 = _pos < _len ? _lineText[_pos] : 0;
@@ -909,21 +1000,53 @@ class Tokenizer
 			//	AND_EQ, 	//    &=
 			//	LOG_AND, 	//    &&
 			case '&':
+				if (ch2 == '=') {
+					_pos++;
+					return OpCode.AND_EQ;
+				}
+				if (ch2 == '&') {
+					_pos++;
+					return OpCode.LOG_AND;
+				}
 				return OpCode.AND;
 			//	OR, 		//    |
 			//	OR_EQ, 		//    |=
 			//	LOG_OR, 	//    ||
 			case '|':
+				if (ch2 == '=') {
+					_pos++;
+					return OpCode.OR_EQ;
+				}
+				if (ch2 == '|') {
+					_pos++;
+					return OpCode.LOG_OR;
+				}
 				return OpCode.OR;
 			//	MINUS, 		//    -
 			//	MINUS_EQ, 	//    -=
 			//	MINUS_MINUS,//    --
 			case '-':
+				if (ch2 == '=') {
+					_pos++;
+					return OpCode.MINUS_EQ;
+				}
+				if (ch2 == '-') {
+					_pos++;
+					return OpCode.MINUS_MINUS;
+				}
 				return OpCode.MINUS;
 			//	PLUS, 		//    +
 			//	PLUS_EQ, 	//    +=
 			//	PLUS_PLUS, 	//    ++
 			case '+':
+				if (ch2 == '=') {
+					_pos++;
+					return OpCode.PLUS_EQ;
+				}
+				if (ch2 == '+') {
+					_pos++;
+					return OpCode.PLUS_PLUS;
+				}
 				return OpCode.PLUS;
 			//	LT, 		//    <
 			//	LT_EQ, 		//    <=
@@ -932,6 +1055,26 @@ class Tokenizer
 			//	LT_GT, 		//    <>
 			//	NE_EQ, 		//    <>=
 			case '<':
+				if (ch2 == '<') {
+					if (ch3 == '=') {
+						_pos += 2;
+						return OpCode.SHL_EQ;
+					}
+					_pos++;
+					return OpCode.SHL;
+				}
+				if (ch2 == '>') {
+					if (ch3 == '=') {
+						_pos += 2;
+						return OpCode.NE_EQ;
+					}
+					_pos++;
+					return OpCode.LT_GT;
+				}
+				if (ch2 == '=') {
+					_pos++;
+					return OpCode.LT_EQ;
+				}
 				return OpCode.LT;
 			//	GT, 		//    >
 			//	GT_EQ, 		//    >=
@@ -940,6 +1083,28 @@ class Tokenizer
 			//	SHR, 		//    >>
 			//	ASR, 		//    >>>
 			case '>':
+				if (ch2 == '>') {
+					if (ch3 == '>') {
+						dchar ch4 = _pos < _len - 2 ? _lineText[_pos + 2] : 0;
+						if (ch4 == '=') { // >>>=
+							_pos += 3;
+							return OpCode.ASR_EQ;
+						}
+						_pos += 2;
+						return OpCode.ASR; // >>>
+					}
+					if (ch3 == '=') { // >>=
+						_pos += 2;
+						return OpCode.SHR_EQ;
+					}
+					_pos++;
+					return OpCode.SHR;
+				}
+				if (ch2 == '=') { // >=
+					_pos++;
+					return OpCode.GT_EQ;
+				}
+				// >
 				return OpCode.GT;
 			//	NOT, 		//    !
 			//	NOT_EQ		//    !=
@@ -950,6 +1115,27 @@ class Tokenizer
 			//	NOT_GT, 	//    !>
 			//	NOT_GT_EQ, 	//    !>=
 			case '!':
+				if (ch2 == '<') { // !<
+					if (ch3 == '>') { // !<>
+						dchar ch4 = _pos < _len - 2 ? _lineText[_pos + 2] : 0;
+						if (ch4 == '=') { // !<>=
+							_pos += 3;
+							return OpCode.NOT_LT_GT_EQ;
+						}
+						_pos += 2;
+						return OpCode.NOT_LT_GT; // !<>
+					}
+					if (ch3 == '=') { // !<=
+						_pos += 2;
+						return OpCode.NOT_LT_EQ;
+					}
+					_pos++;
+					return OpCode.NOT_LT; // !<
+				}
+				if (ch2 == '=') { // !=
+					_pos++;
+					return OpCode.NOT_EQ;
+				}
 				return OpCode.NOT;
 			//	PAR_OPEN, 	//    (
 			case '(':
@@ -988,24 +1174,56 @@ class Tokenizer
 			//	QE_EQ, 		//    ==
 			//	EQ_GT, 		//    =>
 			case '=':
+				if (ch2 == '=') { // ==
+					_pos++;
+					return OpCode.QE_EQ;
+				}
+				if (ch2 == '>') { // =>
+					_pos++;
+					return OpCode.EQ_GT;
+				}
 				return OpCode.EQ;
 			//	MUL, 		//    *
 			//	MUL_EQ, 	//    *=
 			case '*':
+				if (ch2 == '=') {
+					_pos++;
+					return OpCode.MUL_EQ;
+				}
 				return OpCode.MUL;
 			//	MOD, 	//    %
 			//	MOD_EQ, //    %=
 			case '%':
+				if (ch2 == '=') {
+					_pos++;
+					return OpCode.MOD_EQ;
+				}
 				return OpCode.MOD;
 			//	XOR, 		//    ^
 			//	XOR_EQ, 	//    ^=
 			//	LOG_XOR, 	//    ^^
 			//	LOG_XOR_EQ, //    ^^=
 			case '^':
+				if (ch2 == '^') {
+					if (ch3 == '=') {
+						_pos += 2;
+						return OpCode.LOG_XOR_EQ;
+					}
+					_pos++;
+					return OpCode.LOG_XOR;
+				}
+				if (ch2 == '=') {
+					_pos++;
+					return OpCode.XOR_EQ;
+				}
 				return OpCode.XOR;
 			//	INV, 		//    ~
 			//	INV_EQ, 	//    ~=
 			case '~':
+				if (ch2 == '=') {
+					_pos++;
+					return OpCode.INV_EQ;
+				}
 				return OpCode.INV;
 			//	AT, 		//    @
 			case '@':
@@ -1106,6 +1324,13 @@ class Tokenizer
 			// start of identifier or keyword?
 			return processIdent();
 		}
+		uint oldPos = _pos - 1;
+		OpCode op = detectOp(ch);
+		if (op != OpCode.NONE) {
+			_sharedOpToken.setPos(_line, oldPos);
+			_sharedOpToken.opCode = op;
+			return _sharedOpToken;
+		}
 		return null;
 	}
 	
@@ -1139,7 +1364,7 @@ unittest {
 				writeln("EOF token");
 				break;
 			}
-			writeln("", token.line, ":", token.pos, "\t", token.type, "\t\"", toUTF8(token.text), "\"");
+			writeln("", token.line, ":", token.pos, "\t", token.type, "\t", token.opCode, "\t\"", toUTF8(token.text), "\"");
 	    }
     } catch (Exception e) {
         writeln("Exception " ~ e.toString);

@@ -1,7 +1,8 @@
 ﻿// single line comment, followed by whitespace
 
     "sample string" INDENTIFIER_UNIVERSAL_ALPHA_ЙЦУКЕН
-	
+(["".=>!= ^^])
+		
 module ddc.lexer.LineStream;
 
 import std.stream;
