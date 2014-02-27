@@ -1,6 +1,6 @@
 ﻿// single line comment, followed by whitespace
 
-    "sample string"
+    "sample string" INDENTIFIER_UNIVERSAL_ALPHA_ЙЦУКЕН
 	
 module ddc.lexer.LineStream;
 
