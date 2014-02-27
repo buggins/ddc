@@ -1,8 +1,10 @@
 ﻿// single line comment, followed by whitespace
-
+__DATE__ __TIME__ __TIMESTAMP__ __VENDOR__ __VERSION__
+	
     "sample string" INDENTIFIER_UNIVERSAL_ALPHA_ЙЦУКЕН
 (["".=>!= ^^])
-		
+
+			
 module ddc.lexer.LineStream;
 
 import std.stream;
@@ -343,3 +345,6 @@ unittest {
     writeln("EOF");
 }
 // LAST LINE
+
+__EOF__
+// one more line

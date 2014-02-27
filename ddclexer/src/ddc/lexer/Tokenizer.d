@@ -4,6 +4,8 @@ import ddc.lexer.LineStream;
 import ddc.lexer.exceptions;
 
 import std.stdio;
+import std.datetime;
+import std.conv;
 
 enum TokenType : ubyte {
 	EOF,
@@ -704,10 +706,19 @@ enum Keyword : ubyte {
 	FUNCTION__,
 	PRETTY_FUNCTION,
 
+	//Special Token	Replaced with
+	DATE, //	string literal of the date of compilation "mmm dd yyyy"
+	EOF, //	sets the scanner to the end of the file
+	TIME, //	string literal of the time of compilation "hh:mm:ss"
+	TIMESTAMP, //	string literal of the date and time of compilation "www mmm dd hh:mm:ss yyyy"
+	VENDOR, //	Compiler vendor string, such as "Digital Mars D"
+	VERSION_, //	Compiler version as an integer, such as 2001
+	
 	GSHARED,
 	TRAITS,
 	VECTOR,
 	PARAMETERS,
+
 }
 
 immutable dstring[] KEYWORD_STRINGS = [
@@ -839,6 +850,15 @@ immutable dstring[] KEYWORD_STRINGS = [
 	"__FUNCTION__",
 	"__PRETTY_FUNCTION__",
 
+	//Special Token	Replaced with
+	"__DATE__", //	string literal of the date of compilation "mmm dd yyyy"
+	"__EOF__", //	sets the scanner to the end of the file
+	"__TIME__", //	string literal of the time of compilation "hh:mm:ss"
+	"__TIMESTAMP__", //	string literal of the date and time of compilation "www mmm dd hh:mm:ss yyyy"
+	"__VENDOR__", //	Compiler vendor string, such as "Digital Mars D"
+	"__VERSION__", //	Compiler version as an integer, such as 2001
+
+		
 	"__gshared",
 	"__traits",
 	"__vector",
@@ -1093,6 +1113,7 @@ class Tokenizer
 		_sharedIdentToken.setFile(_lineStream.filename);
 		_sharedOpToken.setFile(_lineStream.filename);
 		_sharedKeywordToken.setFile(_lineStream.filename);
+		buildTime = Clock.currTime();
 	}
 	
 	// fetch next line from source stream
@@ -1765,10 +1786,57 @@ class Tokenizer
 		_sharedStringLiteralToken.setText(_stringLiteralAppender.get(), type);
 		return _sharedStringLiteralToken;
 	}
+
+	SysTime buildTime;
 	
+	//	string literal of the date of compilation "mmm dd yyyy"
+	dstring formatBuildDate() {
+		// TODO: provide proper format
+		return to!dstring(buildTime);
+	}
+	
+	//	string literal of the time of compilation "hh:mm:ss"
+	dstring formatBuildTime() {
+		// TODO: provide proper format
+		return to!dstring(buildTime);
+	}
+	
+	//	string literal of the date and time of compilation "www mmm dd hh:mm:ss yyyy"
+	dstring formatBuildTimestamp() {
+		// TODO: provide proper format
+		return to!dstring(buildTime);
+	}
+	
+	immutable dstring VERSION = "0.1";
+	immutable dstring VENDOR = "coolreader.org";
+	
+	Token makeSpecialTokenString(dstring str, uint pos) {
+		_sharedStringLiteralToken.setPos(_line, pos);
+		_sharedStringLiteralToken.setText(cast(dchar[])str, 0);
+		return _sharedStringLiteralToken;
+	}
+	
+	Token processSpecialToken(Keyword keyword, uint pos) {
+		switch (keyword) {
+			//Special Token	Replaced with
+			case Keyword.DATE: //	string literal of the date of compilation "mmm dd yyyy"
+				return makeSpecialTokenString(formatBuildDate(), pos);
+			case Keyword.TIME: //	string literal of the time of compilation "hh:mm:ss"
+				return makeSpecialTokenString(formatBuildTime(), pos);
+			case Keyword.TIMESTAMP: //	string literal of the date and time of compilation "www mmm dd hh:mm:ss yyyy"
+				return makeSpecialTokenString(formatBuildTimestamp(), pos);
+			case Keyword.VENDOR: //	Compiler vendor string, such as "Digital Mars D"
+				return makeSpecialTokenString(VENDOR, pos);
+			case Keyword.VERSION_: //	Compiler version as an integer, such as 2001
+				return makeSpecialTokenString(VERSION, pos);
+			default:
+				parserError("Unexpected token");
+		}
+		return null;
+	}
 	
 	// returns next token (clone it if you want to store for future usage, otherwise it may be overwritten by further nextToken() calls).
-	Token nextToken() {
+	public Token nextToken() {
 		dchar ch = nextChar();
 		if (ch == EOF_CHAR) {
 			return emitEof();
@@ -1799,9 +1867,20 @@ class Tokenizer
 			// start of identifier or keyword?
 			Keyword keyword = detectKeyword(ch);
 			if (keyword != Keyword.NONE) {
-				_sharedKeywordToken.setPos(_line, oldPos);
-				_sharedKeywordToken.keyword = keyword;
-				return _sharedKeywordToken;
+				switch (keyword) {
+					//Special Token	Replaced with
+					case Keyword.EOF: return emitEof(); //	sets the scanner to the end of the file
+					case Keyword.DATE: //	string literal of the date of compilation "mmm dd yyyy"
+					case Keyword.TIME: //	string literal of the time of compilation "hh:mm:ss"
+					case Keyword.TIMESTAMP: //	string literal of the date and time of compilation "www mmm dd hh:mm:ss yyyy"
+					case Keyword.VENDOR: //	Compiler vendor string, such as "Digital Mars D"
+					case Keyword.VERSION_: //	Compiler version as an integer, such as 2001
+						return processSpecialToken(keyword, oldPos);
+					default:
+						_sharedKeywordToken.setPos(_line, oldPos);
+						_sharedKeywordToken.keyword = keyword;
+						return _sharedKeywordToken;
+				}
 			}
 			return processIdent();
 		}
