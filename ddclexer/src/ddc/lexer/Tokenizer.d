@@ -902,6 +902,9 @@ class Token {
 	public @property uint pos() { return _pos; }
 	public @property dchar[] text() { return null; }
 	public @property dchar literalType() { return 0; }
+	public @property ulong intValue() { return 0; }
+	public @property bool isUnsigned() { return false; }
+	public @property ulong isLong() { return false; }
 	public @property OpCode opCode() { return OpCode.NONE; }
 	public @property Keyword keyword() { return Keyword.NONE; }
 	this(TokenType type) {
@@ -1028,6 +1031,37 @@ class StringLiteralToken : Token {
 	}
 }
 
+class IntegerLiteralToken : Token {
+	ulong _value;
+	bool _unsigned;
+	bool _long;
+	public @property override ulong intValue() { return _value; }
+	public @property override bool isUnsigned() { return _unsigned; }
+	public @property override ulong isLong() { return _long; }
+	public @property override dchar[] text() { return cast(dchar[])to!dstring(_value); }
+	public void setValue(ulong value, bool unsignedFlag = false, bool longFlag = false) {
+		_value = value;
+		_unsigned = unsignedFlag;
+		_long = longFlag;
+	}
+	public void setFlags(bool unsignedFlag = false, bool longFlag = false) {
+		_unsigned = unsignedFlag;
+		_long = longFlag;
+	}
+	this() {
+		super(TokenType.INTEGER);
+	}
+	this(string file, uint line, uint pos, ulong value, bool unsignedFlag, bool longFlag) {
+		super(TokenType.INTEGER, file, line, pos);
+		_value = value;
+		_unsigned = unsignedFlag;
+		_long = longFlag;
+	}
+	override public Token clone() {
+		return new IntegerLiteralToken(_file, _line, _pos, _value, _unsigned, _long);
+	}
+}
+
 class IdentToken : Token {
 	dchar[] _text;
 	public @property override dchar[] text() { return _text; }
@@ -1096,6 +1130,7 @@ class Tokenizer
 	IdentToken _sharedIdentToken = new IdentToken();
 	OpToken _sharedOpToken = new OpToken();
 	KeywordToken _sharedKeywordToken = new KeywordToken();
+	IntegerLiteralToken _sharedIntegerToken = new IntegerLiteralToken();
 	StringAppender _stringLiteralAppender;
 	StringAppender _commentAppender;
 	StringAppender _identAppender;
@@ -1113,6 +1148,7 @@ class Tokenizer
 		_sharedIdentToken.setFile(_lineStream.filename);
 		_sharedOpToken.setFile(_lineStream.filename);
 		_sharedKeywordToken.setFile(_lineStream.filename);
+		_sharedIntegerToken.setFile(_lineStream.filename);
 		buildTime = Clock.currTime();
 	}
 	
@@ -1300,7 +1336,81 @@ class Tokenizer
 		_sharedIdentToken.setText(_lineText[startPos .. endPos]);
 		return _sharedIdentToken;
 	}
+
+	Token processIntegerSuffix() {
+		if (_pos >= _len)
+			return _sharedIntegerToken;
+		bool longFlag = false;
+		bool unsignedFlag = false;
+		dchar ch = _lineText[_pos];
+		dchar ch2 = _pos < _len - 1 ? _lineText[_pos + 1] : 0;
+		if (ch == 'l' || ch == 'L') {
+			longFlag = true;
+			_pos++;
+			if (ch2 == 'u' || ch2 == 'U') {
+				unsignedFlag = true;
+				_pos++;
+			} 
+		} else if (ch == 'u' || ch == 'U') {
+			unsignedFlag = true;
+			_pos++;
+			if (ch2 == 'l' || ch2 == 'L') {
+				longFlag = true;
+				_pos++;
+			} 
+		}
+		_sharedIntegerToken.setFlags(unsignedFlag, longFlag);
+		ch = _pos < _len ? _lineText[_pos] : 0;
+		if (isIdentMiddleChar(ch))
+			parserError("Unexpected character after number");
+		return _sharedIntegerToken;
+	}
 	
+	Token processBinaryNumber() {
+		_sharedIntegerToken.setPos(_line, _pos - 1);
+		_pos++;
+		if (_pos >= _len)
+			parserError("Unexpected end of line in binary number");
+		int digits = 0;
+		ulong number = 0;
+		uint i = _pos;
+		for (;i < _len; i++) {
+			dchar ch = _lineText[i];
+			if (ch != '0' && ch != '1')
+				break;
+			number = number | ((ch == '1' ? 1 : 0) << digits);
+			digits++;
+		}
+		_pos = i;
+		if (digits > 64)
+			parserError("number is too big");
+		_sharedIntegerToken.setValue(number);
+		return processIntegerSuffix();
+	}
+
+	Token processHexNumber() {
+		_sharedIntegerToken.setPos(_line, _pos - 1);
+		_pos++;
+		if (_pos >= _len)
+			parserError("Unexpected end of line in hex number");
+		int digits = 0;
+		ulong number = 0;
+		return null;
+	}
+	
+	Token processOctNumber() {
+		_pos++;
+		if (_pos >= _len)
+			parserError("Unexpected end of line in oct number");
+		int digits = 0;
+		ulong number = 0;
+		return null;
+	}
+	
+	Token processDecNumber(dchar ch) {
+		return null;
+	}
+		
 	void parserError(string msg) {
 		throw new ParserException(msg, _lineStream.filename, _line, _pos);
 	}
@@ -1863,6 +1973,20 @@ class Tokenizer
 		if ((ch == 'r' && next == '\"') || (ch == '`'))
 			return processDoubleQuotedOrWysiwygString(ch);
 		uint oldPos = _pos - 1;
+		
+		if (ch == '0') {
+			if (next == 'b' || next == 'B')
+				return processBinaryNumber();
+			if (next == 'x' || next == 'X')
+				return processHexNumber();
+			if (next >= '0' && next <= '9')
+				return processOctNumber();
+			if (next >= '0' && next <= '9')
+				return processDecNumber(ch);
+		}
+		if (ch >= '0' && ch <= '9')
+			return processDecNumber(ch);
+		
 		if (ch == '_' || isUniversalAlpha(ch)) {
 			// start of identifier or keyword?
 			Keyword keyword = detectKeyword(ch);

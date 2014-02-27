@@ -1,4 +1,5 @@
 ﻿// single line comment, followed by whitespace
+0b010123 0b111ul 0b101l 0b1010u 0b1111UL
 __DATE__ __TIME__ __TIMESTAMP__ __VENDOR__ __VERSION__
 	
     "sample string" INDENTIFIER_UNIVERSAL_ALPHA_ЙЦУКЕН
