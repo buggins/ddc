@@ -575,6 +575,302 @@ dstring getOpNameD(OpCode op) pure nothrow {
 	return OP_CODE_STRINGS[op];
 };
 
+enum Keyword : ubyte {
+	NONE,
+	ABSTRACT,
+	ALIAS,
+	ALIGN,
+	ASM,
+	ASSERT,
+	AUTO,
+
+	BODY,
+	BOOL,
+	BREAK,
+	BYTE,
+
+	CASE,
+	CAST,
+	CATCH,
+	CDOUBLE,
+	CENT,
+	CFLOAT,
+	CHAR,
+	CLASS,
+	CONST,
+	CONTINUE,
+	CREAL,
+
+	DCHAR,
+	DEBUG,
+	DEFAULT,
+	DELEGATE,
+	DELETE,
+	DEPRECATED,
+	DO,
+	DOUBLE,
+
+	ELSE,
+	ENUM,
+	EXPORT,
+	EXTERN,
+
+	FALSE,
+	FINAL,
+	FINALLY,
+	FLOAT,
+	FOR,
+	FOREACH,
+	FOREACH_REVERSE,
+	FUNCTION,
+
+	GOTO,
+
+	IDOUBLE,
+	IF,
+	IFLOAT,
+	IMMUTABLE,
+	IMPORT,
+	IN,
+	INOUT,
+	INT,
+	INTERFACE,
+	INVARIANT,
+	IREAL,
+	IS,
+
+	LAZY,
+	LONG,
+
+	MACRO,
+	MIXIN,
+	MODULE,
+
+	NEW,
+	NOTHROW,
+	NULL,
+
+	OUT,
+	OVERRIDE,
+
+	PACKAGE,
+	PRAGMA,
+	PRIVATE,
+	PROTECTED,
+	PUBLIC,
+	PURE,
+
+	REAL,
+	REF,
+	RETURN,
+
+	SCOPE,
+	SHARED,
+	SHORT,
+	STATIC,
+	STRUCT,
+	SUPER,
+	SWITCH,
+	SYNCHRONIZED,
+
+	TEMPLATE,
+	THIS,
+	THROW,
+	TRUE,
+	TRY,
+	TYPEDEF,
+	TYPEID,
+	TYPEOF,
+
+	UBYTE,
+	UCENT,
+	UINT,
+	ULONG,
+	UNION,
+	UNITTEST,
+	USHORT,
+
+	VERSION,
+	VOID,
+	VOLATILE,
+
+	WCHAR,
+	WHILE,
+	WITH,
+
+	FILE,
+	MODULE__,
+	LINE,
+	FUNCTION__,
+	PRETTY_FUNCTION,
+
+	GSHARED,
+	TRAITS,
+	VECTOR,
+	PARAMETERS,
+}
+
+immutable dstring[] KEYWORD_STRINGS = [
+	"",
+	"abstract",
+	"alias",
+	"align",
+	"asm",
+	"assert",
+	"auto",
+
+	"body",
+	"bool",
+	"break",
+	"byte",
+
+	"case",
+	"cast",
+	"catch",
+	"cdouble",
+	"cent",
+	"cfloat",
+	"char",
+	"class",
+	"const",
+	"continue",
+	"creal",
+
+	"dchar",
+	"debug",
+	"default",
+	"delegate",
+	"delete",
+	"deprecated",
+	"do",
+	"double",
+
+	"else",
+	"enum",
+	"export",
+	"extern",
+
+	"false",
+	"final",
+	"finally",
+	"float",
+	"for",
+	"foreach",
+	"foreach_reverse",
+	"function",
+
+	"goto",
+
+	"idouble",
+	"if",
+	"ifloat",
+	"immutable",
+	"import",
+	"in",
+	"inout", 
+	"int",
+	"interface",
+	"invariant",
+	"ireal",
+	"is",
+
+	"lazy",
+	"long",
+
+	"macro",
+	"mixin",
+	"module",
+
+	"new",
+	"nothrow",
+	"null",
+
+	"out",
+	"override",
+
+	"package",
+	"pragma",
+	"private",
+	"protected",
+	"public",
+	"pure",
+
+	"real",
+	"ref",
+	"return",
+
+	"scope",
+	"shared",
+	"short",
+	"static",
+	"struct",
+	"super",
+	"switch",
+	"synchronized",
+
+	"template",
+	"this",
+	"throw",
+	"true",
+	"try",
+	"typedef",
+	"typeid",
+	"typeof",
+
+	"ubyte",
+	"ucent",
+	"uint",
+	"ulong",
+	"union",
+	"unittest",
+	"ushort",
+
+	"version",
+	"void",
+	"volatile",
+
+	"wchar",
+	"while",
+	"with",
+
+	"__FILE__",
+	"__MODULE__",
+	"__LINE__",
+	"__FUNCTION__",
+	"__PRETTY_FUNCTION__",
+
+	"__gshared",
+	"__traits",
+	"__vector",
+	"__parameters"
+];
+
+public dstring getKeywordNameD(Keyword keyword) pure nothrow {
+	return KEYWORD_STRINGS[keyword];
+};
+
+public Keyword findKeyword(Keyword start, Keyword end, dchar * name, uint len, ref uint pos) pure nothrow {
+	for (Keyword i = start; i <= end; i++) {
+		dstring s = KEYWORD_STRINGS[i];
+		if (s.length > len + 1)
+			continue; // too long
+		bool found = true;
+		for (uint j = 1; j < s.length; j++) {
+			if (s[j] != name[j - 1]) {
+				found = false;
+				break;
+			}
+		}
+		if (found) {
+			if (s.length == len - 1 || !isIdentMiddleChar(name[s.length - 1])) {
+				pos += s.length - 1;
+				return i;
+			}
+		}
+	}
+	return Keyword.NONE;
+}
+			
 class Token {
 	protected TokenType _type;
 	protected string _file;
@@ -587,6 +883,7 @@ class Token {
 	public @property dchar[] text() { return null; }
 	public @property dchar literalType() { return 0; }
 	public @property OpCode opCode() { return OpCode.NONE; }
+	public @property Keyword keyword() { return Keyword.NONE; }
 	this(TokenType type) {
 		_type = type;
 	}
@@ -655,6 +952,22 @@ class OpToken : Token {
 	}
 	override public Token clone() {
 		return new OpToken(_file, _line, _pos);
+	}
+}
+
+class KeywordToken : Token {
+	Keyword _keyword;
+	public @property override Keyword keyword() { return _keyword; }
+	public @property void keyword(Keyword keyword) { _keyword = keyword; }
+	public @property override dchar[] text() { return cast(dchar[])getKeywordNameD(_keyword); }
+	this() {
+		super(TokenType.KEYWORD);
+	}
+	this(string file, uint line, uint pos) {
+		super(TokenType.KEYWORD, file, line, pos);
+	}
+	override public Token clone() {
+		return new KeywordToken(_file, _line, _pos);
 	}
 }
 
@@ -762,6 +1075,7 @@ class Tokenizer
 	StringLiteralToken _sharedStringLiteralToken = new StringLiteralToken();
 	IdentToken _sharedIdentToken = new IdentToken();
 	OpToken _sharedOpToken = new OpToken();
+	KeywordToken _sharedKeywordToken = new KeywordToken();
 	StringAppender _stringLiteralAppender;
 	StringAppender _commentAppender;
 	StringAppender _identAppender;
@@ -778,6 +1092,7 @@ class Tokenizer
 		_sharedStringLiteralToken.setFile(_lineStream.filename);
 		_sharedIdentToken.setFile(_lineStream.filename);
 		_sharedOpToken.setFile(_lineStream.filename);
+		_sharedKeywordToken.setFile(_lineStream.filename);
 	}
 	
 	// fetch next line from source stream
@@ -968,7 +1283,166 @@ class Tokenizer
 	void parserError(string msg) {
 		throw new ParserException(msg, _lineStream.filename, _line, _pos);
 	}
-	
+
+	Keyword detectKeyword(dchar ch) {
+		if (ch > 'z')
+			return Keyword.NONE;
+		uint len = _len - _pos;
+		switch (cast(ubyte)ch) {
+			//	ABSTRACT,
+			//	ALIAS,
+			//	ALIGN,
+			//	ASM,
+			//	ASSERT,
+			//	AUTO,
+			case 'a': return findKeyword(Keyword.ABSTRACT, Keyword.AUTO, _lineText.ptr + _pos, len, _pos);
+
+			//	BODY,
+			//	BOOL,
+			//	BREAK,
+			//	BYTE,
+			case 'b': return findKeyword(Keyword.BODY, Keyword.BYTE, _lineText.ptr + _pos, len, _pos);
+				
+			//	CASE,
+			//	CAST,
+			//	CATCH,
+			//	CDOUBLE,
+			//	CENT,
+			//	CFLOAT,
+			//	CHAR,
+			//	CLASS,
+			//	CONST,
+			//	CONTINUE,
+			//	CREAL,
+			case 'c': return findKeyword(Keyword.CASE, Keyword.CREAL, _lineText.ptr + _pos, len, _pos);
+				
+			//	DCHAR,
+			//	DEBUG,
+			//	DEFAULT,
+			//	DELEGATE,
+			//	DELETE,
+			//	DEPRECATED,
+			//	DO,
+			//	DOUBLE,
+			case 'd': return findKeyword(Keyword.DCHAR, Keyword.DOUBLE, _lineText.ptr + _pos, len, _pos);
+				
+			//	ELSE,
+			//	ENUM,
+			//	EXPORT,
+			//	EXTERN,
+			case 'e': return findKeyword(Keyword.ELSE, Keyword.EXTERN, _lineText.ptr + _pos, len, _pos);
+				
+			//	FALSE,
+			//	FINAL,
+			//	FINALLY,
+			//	FLOAT,
+			//	FOR,
+			//	FOREACH,
+			//	FOREACH_REVERSE,
+			//	FUNCTION,
+			case 'f': return findKeyword(Keyword.FALSE, Keyword.FUNCTION, _lineText.ptr + _pos, len, _pos);
+				
+			//	GOTO,
+			case 'g': return findKeyword(Keyword.GOTO, Keyword.GOTO, _lineText.ptr + _pos, len, _pos);
+				
+			//	IDOUBLE,
+			//	IF,
+			//	IFLOAT,
+			//	IMMUTABLE,
+			//	IMPORT,
+			//	IN,
+			//	INOUT,
+			//	INT,
+			//	INTERFACE,
+			//	INVARIANT,
+			//	IREAL,
+			//	IS,
+			case 'i': return findKeyword(Keyword.IDOUBLE, Keyword.IS, _lineText.ptr + _pos, len, _pos);
+				
+			//	LAZY,
+			//	LONG,
+			case 'l': return findKeyword(Keyword.LAZY, Keyword.LONG, _lineText.ptr + _pos, len, _pos);
+				
+			//	MACRO,
+			//	MIXIN,
+			//	MODULE,
+			case 'm': return findKeyword(Keyword.MACRO, Keyword.MODULE, _lineText.ptr + _pos, len, _pos);
+				
+			//	NEW,
+			//	NOTHROW,
+			//	NULL,
+			case 'n': return findKeyword(Keyword.NEW, Keyword.NULL, _lineText.ptr + _pos, len, _pos);
+				
+			//	OUT,
+			//	OVERRIDE,
+			case 'o': return findKeyword(Keyword.OUT, Keyword.OVERRIDE, _lineText.ptr + _pos, len, _pos);
+				
+			//	PACKAGE,
+			//	PRAGMA,
+			//	PRIVATE,
+			//	PROTECTED,
+			//	PUBLIC,
+			//	PURE,
+			case 'p': return findKeyword(Keyword.PACKAGE, Keyword.PURE, _lineText.ptr + _pos, len, _pos);
+				
+			//	REAL,
+			//	REF,
+			//	RETURN,
+			case 'r': return findKeyword(Keyword.REAL, Keyword.RETURN, _lineText.ptr + _pos, len, _pos);
+				
+			//	SCOPE,
+			//	SHARED,
+			//	SHORT,
+			//	STATIC,
+			//	STRUCT,
+			//	SUPER,
+			//	SWITCH,
+			//	SYNCHRONIZED,
+			case 's': return findKeyword(Keyword.SCOPE, Keyword.SYNCHRONIZED, _lineText.ptr + _pos, len, _pos);
+				
+			//	TEMPLATE,
+			//	THIS,
+			//	THROW,
+			//	TRUE,
+			//	TRY,
+			//	TYPEDEF,
+			//	TYPEID,
+			//	TYPEOF,
+			case 't': return findKeyword(Keyword.TEMPLATE, Keyword.TYPEOF, _lineText.ptr + _pos, len, _pos);
+				
+			//	UBYTE,
+			//	UCENT,
+			//	UINT,
+			//	ULONG,
+			//	UNION,
+			//	UNITTEST,
+			//	USHORT,
+			case 'u': return findKeyword(Keyword.UBYTE, Keyword.USHORT, _lineText.ptr + _pos, len, _pos);
+				
+			//	VERSION,
+			//	VOID,
+			//	VOLATILE,
+			case 'v': return findKeyword(Keyword.VERSION, Keyword.VOLATILE, _lineText.ptr + _pos, len, _pos);
+				
+			//	WCHAR,
+			//	WHILE,
+			//	WITH,
+			case 'w': return findKeyword(Keyword.WCHAR, Keyword.WITH, _lineText.ptr + _pos, len, _pos);
+				
+			//	FILE,
+			//	MODULE,
+			//	LINE,
+			//	FUNCTION,
+			//	PRETTY_FUNCTION,
+			//
+			//	GSHARED,
+			//	TRAITS,
+			//	VECTOR,
+			//	PARAMETERS,
+			case '_': return findKeyword(Keyword.FILE, Keyword.PARAMETERS, _lineText.ptr + _pos, len, _pos);
+			default: return Keyword.NONE;				
+		}
+	}	
 	OpCode detectOp(dchar ch) nothrow {
 		if (ch >= 128)
 			return OpCode.NONE;
@@ -1320,11 +1794,17 @@ class Tokenizer
 			return processDelimitedString();
 		if ((ch == 'r' && next == '\"') || (ch == '`'))
 			return processDoubleQuotedOrWysiwygString(ch);
+		uint oldPos = _pos - 1;
 		if (ch == '_' || isUniversalAlpha(ch)) {
 			// start of identifier or keyword?
+			Keyword keyword = detectKeyword(ch);
+			if (keyword != Keyword.NONE) {
+				_sharedKeywordToken.setPos(_line, oldPos);
+				_sharedKeywordToken.keyword = keyword;
+				return _sharedKeywordToken;
+			}
 			return processIdent();
 		}
-		uint oldPos = _pos - 1;
 		OpCode op = detectOp(ch);
 		if (op != OpCode.NONE) {
 			_sharedOpToken.setPos(_line, oldPos);
@@ -1364,7 +1844,7 @@ unittest {
 				writeln("EOF token");
 				break;
 			}
-			writeln("", token.line, ":", token.pos, "\t", token.type, "\t", token.opCode, "\t\"", toUTF8(token.text), "\"");
+			writeln("", token.line, ":", token.pos, "\t", token.type, "\t", token.opCode, "\t", token.keyword, "\t\"", toUTF8(token.text), "\"");
 	    }
     } catch (Exception e) {
         writeln("Exception " ~ e.toString);
