@@ -6,6 +6,7 @@ import ddc.lexer.exceptions;
 import std.stdio;
 import std.datetime;
 import std.conv;
+import std.utf;
 
 enum TokenType : ubyte {
 	EOF,
@@ -486,8 +487,8 @@ enum OpCode : ubyte {
 	CURL_CLOSE, //    }
 	QUEST, 		//    ?
 	COMMA, 		//    ,
-	COLON, 		//    ;
-	SEMICOLON, 	//    :
+	SEMICOLON,  //    ;
+	COLON, 	    //    :
 	DOLLAR, 	//    $
 	EQ, 		//    =
 	QE_EQ, 		//    ==
@@ -929,6 +930,10 @@ class Token {
 		_pos = pos + 1;
 	}
 	public abstract Token clone();
+	public override @property string toString() {
+		return "" ~ to!string(_line) ~ ":" ~ to!string(_pos) ~ " " ~ to!string(type) ~ " " ~ to!string(opCode) ~ " " ~ to!string(keyword) 
+			~" \"" ~ toUTF8(text()) ~ "\"";
+	}
 }
 
 class EofToken : Token {
@@ -940,6 +945,9 @@ class EofToken : Token {
 	}
 	override public Token clone() {
 		return new EofToken(_file, _line, _pos);
+	}
+	public override @property string toString() {
+		return "EOF";
 	}
 }
 
@@ -960,6 +968,9 @@ class WhiteSpaceToken : Token {
 	override public Token clone() {
 		return new WhiteSpaceToken(_file, _line, _pos);
 	}
+	public override @property string toString() {
+		return "WhiteSpace";
+	}
 }
 
 class OpToken : Token {
@@ -976,6 +987,9 @@ class OpToken : Token {
 	override public Token clone() {
 		return new OpToken(_file, _line, _pos);
 	}
+	public override @property string toString() {
+		return "Op:" ~ to!string(_op);
+	}
 }
 
 class KeywordToken : Token {
@@ -991,6 +1005,9 @@ class KeywordToken : Token {
 	}
 	override public Token clone() {
 		return new KeywordToken(_file, _line, _pos);
+	}
+	public override @property string toString() {
+		return "Keyword:" ~ to!string(_keyword);
 	}
 }
 
@@ -1010,6 +1027,9 @@ class CommentToken : Token {
 	override public Token clone() {
 		return new CommentToken(_file, _line, _pos, _text);
 	}
+	public override @property string toString() {
+		return "Comment:" ~ to!string(_text);
+	}
 }
 
 class StringLiteralToken : Token {
@@ -1028,6 +1048,9 @@ class StringLiteralToken : Token {
 	}
 	override public Token clone() {
 		return new StringLiteralToken(_file, _line, _pos, _text.dup, _literalType);
+	}
+	public override @property string toString() {
+		return "String:" ~ to!string(_text);
 	}
 }
 
@@ -1060,6 +1083,9 @@ class IntegerLiteralToken : Token {
 	override public Token clone() {
 		return new IntegerLiteralToken(_file, _line, _pos, _value, _unsigned, _long);
 	}
+	public override @property string toString() {
+		return "Integer:" ~ to!string(_value) ~ (_long ? "L" : "") ~ (_unsigned ? "U" : "");
+	}
 }
 
 class IdentToken : Token {
@@ -1075,6 +1101,9 @@ class IdentToken : Token {
 	}
 	override public Token clone() {
 		return new IdentToken(_file, _line, _pos, _text.dup);
+	}
+	public override @property string toString() {
+		return "Ident:" ~ to!string(_text);
 	}
 }
 
@@ -1150,6 +1179,10 @@ class Tokenizer
 		_sharedKeywordToken.setFile(_lineStream.filename);
 		_sharedIntegerToken.setFile(_lineStream.filename);
 		buildTime = Clock.currTime();
+	}
+	
+	this(string code, string filename = "") {
+		this(LineStream.create(code, filename));
 	}
 	
 	// fetch next line from source stream
@@ -1766,12 +1799,12 @@ class Tokenizer
 			//	COMMA, 		//    ,
 			case ',':
 				return OpCode.COMMA;
-			//	COLON, 		//    ;
+			//	SEMICOLON, 	//    ;
 			case ';':
-				return OpCode.COLON;
-			//	SEMICOLON, 	//    :
-			case ':':
 				return OpCode.SEMICOLON;
+			//	COLON, 	    //    :
+			case ':':
+				return OpCode.COLON;
 			//	DOLLAR, 	//    $
 			case '$':
 				return OpCode.DOLLAR;
@@ -2024,6 +2057,180 @@ class Tokenizer
 		_lineText = null;
 	}
 	
+}
+
+unittest {
+	import std.algorithm;
+	class TokenTest {
+		uint _line;
+		string _file;
+		this(string file, uint line) {
+			_file = file;
+			_line = line;
+		}
+		bool doTest(Token token) {
+			return true;
+		}		
+		void execute(Tokenizer tokenizer) {
+			Token token = tokenizer.nextToken();
+			if (!doTest(token)) {
+				assert(false, "	token doesn not match at " ~ _file ~ ":" ~ to!string(_line) ~ "  foundToken: " ~ token.toString ~ " expected: " ~ toString);
+			}
+		}
+		public static void test(string code, TokenTest[] tokens, string file = __FILE__, uint line = __LINE__) {
+			Tokenizer tokenizer = new Tokenizer(code, "test:" ~ file ~ to!string(line));
+			for (uint i = 0; i < tokens.length; i++) {
+				tokens[i].execute(tokenizer);
+			}
+		}
+		public override @property string toString() {
+			return "TokenTest";
+		}
+	}
+	class KeywordTest : TokenTest {
+		Keyword _code;
+		this(Keyword code, string file = __FILE__, uint line = __LINE__) {
+			super(file, line);
+			_code = code;
+		}
+		override bool doTest(Token token) {
+			if (token.type != TokenType.KEYWORD)
+				return false;
+			if (token.keyword != _code)
+				return false;
+			return true;
+		}		
+		public override @property string toString() {
+			return "Keyword:" ~ to!string(_code);
+		}
+	}
+	class OpTest : TokenTest {
+		OpCode _code;
+		this(OpCode code, string file = __FILE__, uint line = __LINE__) {
+			super(file, line);
+			_code = code;
+		}
+		override bool doTest(Token token) {
+			if (token.type != TokenType.OP)
+				return false;
+			if (token.opCode != _code)
+				return false;
+			return true;
+		}		
+		public override @property string toString() {
+			return "Op:" ~ to!string(_code);
+		}
+	}
+	class StringTest : TokenTest {
+		string _value;
+		this(string value, string file = __FILE__, uint line = __LINE__) {
+			super(file, line);
+			_value = value;
+		}
+		override bool doTest(Token token) {
+			if (token.type != TokenType.STRING)
+				return false;
+			if (to!string(token.text).equal(_value))
+				return false;
+			return true;
+		}		
+		public override @property string toString() {
+			return "String:" ~ _value;
+		}
+	}
+	class IdentTest : TokenTest {
+		string _value;
+		this(string value, string file = __FILE__, uint line = __LINE__) {
+			super(file, line);
+			_value = value;
+		}
+		override bool doTest(Token token) {
+			if (token.type != TokenType.IDENTIFIER)
+				return false;
+			if (! to!string(token.text).equal(_value))
+				return false;
+			return true;
+		}		
+		public override @property string toString() {
+			return "Ident:" ~ _value;
+		}
+	}
+	class CommentTest : TokenTest {
+		this(string file = __FILE__, uint line = __LINE__) {
+			super(file, line);
+		}
+		override bool doTest(Token token) {
+			if (token.type != TokenType.COMMENT)
+				return false;
+			return true;
+		}		
+		public override @property string toString() {
+			return "Comment";
+		}
+	}
+	class EOFTest : TokenTest {
+		this(string file = __FILE__, uint line = __LINE__) {
+			super(file, line);
+		}
+		override bool doTest(Token token) {
+			if (token.type != TokenType.EOF)
+				return false;
+			return true;
+		}		
+		public override @property string toString() {
+			return "EOF";
+		}
+	}
+	class WhiteSpaceTest : TokenTest {
+		this(string file = __FILE__, uint line = __LINE__) {
+			super(file, line);
+		}
+		override bool doTest(Token token) {
+			if (token.type != TokenType.WHITESPACE)
+				return false;
+			return true;
+		}		
+		public override @property string toString() {
+			return "whiteSpace";
+		}
+	}
+	TokenTest checkString(string value, string file = __FILE__, uint line = __LINE__) { 
+		return new StringTest(value, file, line);
+	}
+	TokenTest checkIdent(string value, string file = __FILE__, uint line = __LINE__) { 
+		return new IdentTest(value, file, line);
+	}
+	TokenTest checkKeyword(Keyword value, string file = __FILE__, uint line = __LINE__) { 
+		return new KeywordTest(value, file, line);
+	}
+	TokenTest checkOp(OpCode value, string file = __FILE__, uint line = __LINE__) { 
+		return new OpTest(value, file, line);
+	}
+	TokenTest checkSpace(string file = __FILE__, uint line = __LINE__) { 
+		return new WhiteSpaceTest(file, line);
+	}
+	TokenTest checkComment(string file = __FILE__, uint line = __LINE__) { 
+		return new CommentTest(file, line);
+	}
+	TokenTest checkEOF(string file = __FILE__, uint line = __LINE__) { 
+		return new EOFTest(file, line);
+	}
+	
+	TokenTest[] tests1 = [
+			checkSpace(),
+			checkEOF()
+		];
+	TokenTest.test(q"TEST
+int i;
+TEST"
+			, [
+			checkKeyword(Keyword.INT),
+			checkSpace(),
+			checkIdent("i"),
+			checkOp(OpCode.SEMICOLON),
+			checkSpace(),
+			checkEOF()
+		]);
 }
 
 unittest {

@@ -208,6 +208,20 @@ class LineStream {
 	immutable int BYTE_BUFFER_SIZE = 512;
 	immutable int QUARTER_BYTE_BUFFER_SIZE = BYTE_BUFFER_SIZE / 4;
 	
+	// factory for string parser
+	public static LineStream create(string code, string filename = "") {
+		uint len = cast(uint)code.length;
+		ubyte[] data = new ubyte[len + 3];
+		for (uint i = 0; i < len; i++)
+			data[i + 3] = code[i];
+		// BOM for UTF8
+		data[0] = 0xEF;
+		data[1] = 0xBB;
+		data[2] = 0xBF;
+		MemoryStream stream = new MemoryStream(data);
+		return create(stream, filename);
+	}
+	
 	// factory
 	public static LineStream create(InputStream stream, string filename) {
 		ubyte[] buf = new ubyte[BYTE_BUFFER_SIZE];
