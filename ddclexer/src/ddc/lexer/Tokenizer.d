@@ -1441,6 +1441,8 @@ class Tokenizer
 				digit = ch - 'a' + 10;
 			else if (ch >= 'A' && ch <= 'F')
 				digit = ch - 'A' + 10;
+			else if (ch == '_')
+				continue;
 			else
 				break;
 			number = (number << 4) | digit;
@@ -1466,6 +1468,8 @@ class Tokenizer
 			uint digit = 0;
 			if (ch >= '0' && ch <= '7')
 				digit = ch - '0';
+			else if (ch == '_')
+				continue;
 			else
 				break;
 			number <<= 3;
@@ -1499,6 +1503,8 @@ class Tokenizer
 			uint digit = 0;
 			if (ch >= '0' && ch <= '9')
 				digit = ch - '0';
+			else if (ch == '_')
+				continue;
 			else
 				break;
 			number *= 10;
@@ -2328,7 +2334,7 @@ TEST"
 			checkOp(OpCode.SEMICOLON),
 			checkEOF()
 		]);
-	testTokenizer("0b1101 0x123abcdU 0xABCL 0743 192837465 0"
+	testTokenizer("0b1101 0x123abcdU 0xABCL 0743 192837465 0 192_837_465"
 			, [
 			checkInteger(13),
 			checkSpace(),
@@ -2338,9 +2344,11 @@ TEST"
 			checkSpace(),
 			checkInteger(std.conv.octal!743),
 			checkSpace(),
-			checkInteger(192837465),
+			checkInteger(192_837_465),
 			checkSpace(),
 			checkInteger(0),
+			checkSpace(),
+			checkInteger(192837465),
 			checkEOF()
 		]);
 }
