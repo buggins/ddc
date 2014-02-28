@@ -1206,9 +1206,12 @@ class Tokenizer
 			if (!nextLine()) {
 				return EOF_CHAR;
 			}
-		}
-		if (_pos >= _len)
+		} else if (_pos >= _len) {
+			if (!nextLine()) {
+				return EOF_CHAR;
+			}
 			return EOL_CHAR;
+		}
 		return _lineText[_pos++];
 	}
 	
@@ -1411,7 +1414,7 @@ class Tokenizer
 			dchar ch = _lineText[i];
 			if (ch != '0' && ch != '1')
 				break;
-			number = number | ((ch == '1' ? 1 : 0) << digits);
+			number = (number << 1) | (ch == '1' ? 1 : 0);
 			digits++;
 		}
 		_pos = i;
@@ -1428,7 +1431,26 @@ class Tokenizer
 			parserError("Unexpected end of line in hex number");
 		int digits = 0;
 		ulong number = 0;
-		return null;
+		uint i = _pos;
+		for (;i < _len; i++) {
+			dchar ch = _lineText[i];
+			uint digit = 0;
+			if (ch >= '0' && ch <= '9')
+				digit = ch - '0';
+			else if (ch >= 'a' && ch <= 'f')
+				digit = ch - 'a' + 10;
+			else if (ch >= 'A' && ch <= 'F')
+				digit = ch - 'A' + 10;
+			else
+				break;
+			number = (number << 4) | digit;
+			digits++;
+		}
+		_pos = i;
+		if (digits > 16)
+			parserError("number is too big to fit 64 bits");
+		_sharedIntegerToken.setValue(number);
+		return processIntegerSuffix();
 	}
 	
 	Token processOctNumber() {
@@ -2077,14 +2099,14 @@ unittest {
 				assert(false, "	token doesn not match at " ~ _file ~ ":" ~ to!string(_line) ~ "  foundToken: " ~ token.toString ~ " expected: " ~ toString);
 			}
 		}
-		public static void test(string code, TokenTest[] tokens, string file = __FILE__, uint line = __LINE__) {
-			Tokenizer tokenizer = new Tokenizer(code, "test:" ~ file ~ to!string(line));
-			for (uint i = 0; i < tokens.length; i++) {
-				tokens[i].execute(tokenizer);
-			}
-		}
 		public override @property string toString() {
 			return "TokenTest";
+		}
+	}
+	void testTokenizer(string code, TokenTest[] tokens, string file = __FILE__, uint line = __LINE__) {
+		Tokenizer tokenizer = new Tokenizer(code, "tokenizerTest:" ~ file ~ ":" ~ to!string(line));
+		for (uint i = 0; i < tokens.length; i++) {
+			tokens[i].execute(tokenizer);
 		}
 	}
 	class KeywordTest : TokenTest {
@@ -2136,6 +2158,31 @@ unittest {
 		}		
 		public override @property string toString() {
 			return "String:" ~ _value;
+		}
+	}
+	class IntegerTest : TokenTest {
+		ulong _value;
+		bool _unsigned;
+		bool _long;
+		this(ulong value, bool unsignedFlag = false, bool longFlag = false, string file = __FILE__, uint line = __LINE__) {
+			super(file, line);
+			_value = value;
+			_unsigned = unsignedFlag;
+			_long = longFlag;
+		}
+		override bool doTest(Token token) {
+			if (token.type != TokenType.INTEGER)
+				return false;
+			if (token.intValue != _value)
+				return false;
+			if (token.isUnsigned != _unsigned)
+				return false;
+			if (token.isLong != _long)
+				return false;
+			return true;
+		}		
+		public override @property string toString() {
+			return "Integer:" ~ to!string(_value);
 		}
 	}
 	class IdentTest : TokenTest {
@@ -2197,6 +2244,9 @@ unittest {
 	TokenTest checkString(string value, string file = __FILE__, uint line = __LINE__) { 
 		return new StringTest(value, file, line);
 	}
+	TokenTest checkInteger(ulong value, bool unsignedFlag = false, bool longFlag = false, string file = __FILE__, uint line = __LINE__) { 
+		return new IntegerTest(value, unsignedFlag, longFlag, file, line);
+	}
 	TokenTest checkIdent(string value, string file = __FILE__, uint line = __LINE__) { 
 		return new IdentTest(value, file, line);
 	}
@@ -2216,11 +2266,7 @@ unittest {
 		return new EOFTest(file, line);
 	}
 	
-	TokenTest[] tests1 = [
-			checkSpace(),
-			checkEOF()
-		];
-	TokenTest.test(q"TEST
+	testTokenizer(q"TEST
 int i;
 TEST"
 			, [
@@ -2228,7 +2274,15 @@ TEST"
 			checkSpace(),
 			checkIdent("i"),
 			checkOp(OpCode.SEMICOLON),
+			checkEOF()
+		]);
+	testTokenizer("0b1101 0x123abcdU 0xABCL"
+			, [
+			checkInteger(13),
 			checkSpace(),
+			checkInteger(0x123abcd, true, false),
+			checkSpace(),
+			checkInteger(0xabc, false, true),
 			checkEOF()
 		]);
 }
@@ -2254,7 +2308,7 @@ unittest {
 				writeln("EOF token");
 				break;
 			}
-			writeln("", token.line, ":", token.pos, "\t", token.type, "\t", token.opCode, "\t", token.keyword, "\t\"", toUTF8(token.text), "\"");
+			writeln("", token.line, ":", token.pos, "\t", token.toString);
 	    }
     } catch (Exception e) {
         writeln("Exception " ~ e.toString);
