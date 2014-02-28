@@ -7,6 +7,7 @@ import std.stdio;
 import std.datetime;
 import std.conv;
 import std.utf;
+import std.math;
 
 enum TokenType : ubyte {
 	EOF,
@@ -906,6 +907,11 @@ class Token {
 	public @property ulong intValue() { return 0; }
 	public @property bool isUnsigned() { return false; }
 	public @property ulong isLong() { return false; }
+	public @property real realValue() { return 0; }
+	public @property double doubleValue() { return 0; }
+	public @property float floatValue() { return 0; }
+	public @property byte precision() { return 0; }
+	public @property bool isImaginary() { return false; }
 	public @property OpCode opCode() { return OpCode.NONE; }
 	public @property Keyword keyword() { return Keyword.NONE; }
 	this(TokenType type) {
@@ -1088,6 +1094,43 @@ class IntegerLiteralToken : Token {
 	}
 }
 
+class RealLiteralToken : Token {
+	real _value;
+	byte _precision;
+	bool _imaginary;
+	public @property override ulong intValue() { return to!long(_value); }
+	public @property override real realValue() { return _value; }
+	public @property override double doubleValue() { return cast(double)_value; }
+	public @property override float floatValue() { return cast(float)_value; }
+	public @property override byte precision() { return _precision; }
+	public @property override bool isImaginary() { return _imaginary; }
+	public @property override dchar[] text() { return cast(dchar[])to!dstring(_value); }
+	public void setValue(real value, byte precision = 1, bool imaginary = false) {
+		_value = value;
+		_precision = precision;
+		_imaginary = imaginary;
+	}
+	public void setFlags(byte precision = 1, bool imaginary = false) {
+		_precision = precision;
+		_imaginary = imaginary;
+	}
+	this() {
+		super(TokenType.FLOAT);
+	}
+	this(string file, uint line, uint pos, real value, byte precision, bool imaginary) {
+		super(TokenType.FLOAT, file, line, pos);
+		_value = value;
+		_precision = precision;
+		_imaginary = imaginary;
+	}
+	override public Token clone() {
+		return new RealLiteralToken(_file, _line, _pos, _value, _precision, _imaginary);
+	}
+	public override @property string toString() {
+		return "Integer:" ~ to!string(_value) ~ (_precision == 0 ? "f" : (_precision == 2 ? "L" : "")) ~ (_imaginary ? "i" : "");
+	}
+}
+
 class IdentToken : Token {
 	dchar[] _text;
 	public @property override dchar[] text() { return _text; }
@@ -1160,6 +1203,7 @@ class Tokenizer
 	OpToken _sharedOpToken = new OpToken();
 	KeywordToken _sharedKeywordToken = new KeywordToken();
 	IntegerLiteralToken _sharedIntegerToken = new IntegerLiteralToken();
+	RealLiteralToken _sharedRealToken = new RealLiteralToken();
 	StringAppender _stringLiteralAppender;
 	StringAppender _commentAppender;
 	StringAppender _identAppender;
@@ -1178,6 +1222,7 @@ class Tokenizer
 		_sharedOpToken.setFile(_lineStream.filename);
 		_sharedKeywordToken.setFile(_lineStream.filename);
 		_sharedIntegerToken.setFile(_lineStream.filename);
+		_sharedRealToken.setFile(_lineStream.filename);
 		buildTime = Clock.currTime();
 	}
 	
@@ -1426,6 +1471,7 @@ class Tokenizer
 
 	Token processHexNumber() {
 		_sharedIntegerToken.setPos(_line, _pos - 1);
+		_sharedRealToken.setPos(_line, _pos - 1);
 		_pos++;
 		if (_pos >= _len)
 			parserError("Unexpected end of line in hex number");
@@ -1489,9 +1535,98 @@ class Tokenizer
 		return processIntegerSuffix();
 	}
 	
+	// 
+	Token processDecFloatSuffix(real value) {
+		_sharedRealToken.setValue(value);
+		// TODO
+		return _sharedRealToken;
+	}
+	
+	// after E char
+	Token processDecFloatExponent(real value) {
+		dchar next = _pos < _len ? _lineText[_pos] : 0;
+		int sign = 1;
+		if (next == '+') {
+			_pos++;
+		} else if (next == '-') {
+			_pos++;
+			sign = -1;
+		}
+		if (_pos >= _len)
+			parserError("Invalid exponent");
+		ulong digits = 0;
+		ulong number = 0;
+		uint i = _pos;
+		bool overflow = false;
+		for (;i < _len; i++) {
+			dchar ch = _lineText[i];
+			uint digit = 0;
+			if (ch >= '0' && ch <= '9')
+				digit = ch - '0';
+			else if (ch == '_')
+				continue;
+			else
+				break;
+			number *= 10;
+			if (digits >= 18) {
+				if ((number * 10) / 10 != number) {
+					overflow = true;
+					break;
+				}
+			}
+			number += digit;
+			digits++;
+		}
+		if (digits == 0)
+			parserError("Invalid exponent");
+		_pos = i;
+		value *= pow(10., cast(long)number * sign);
+		return processDecFloatSuffix(value);
+	}
+		
+	Token processDecFloatSecondPart(ulong firstPart) {
+		if (_pos >= _len) {
+			_sharedRealToken.setValue(cast(real)firstPart);
+			return _sharedRealToken;
+		}
+		ulong divider = 1;
+		ulong number = 0;
+		uint i = _pos;
+		bool overflow = false;
+		for (;i < _len; i++) {
+			dchar ch = _lineText[i];
+			uint digit = 0;
+			if (ch >= '0' && ch <= '9')
+				digit = ch - '0';
+			else if (ch == '_')
+				continue;
+			else
+				break;
+			if (divider * 10 < divider)
+				continue; // ignore extra digits
+			number *= 10;
+			number += digit;
+			divider *= 10;
+		}
+		_pos = i;
+		real value = cast(real)firstPart + (cast(real)number / divider);
+		dchar next = _pos < _len ? _lineText[_pos] : 0;
+		if (next == 0) {
+			// neither exponent nor suffix
+			_sharedRealToken.setValue(value);
+			return _sharedRealToken;
+		}
+   		if (next == 'e' || next == 'E') {
+			_pos++;
+			return processDecFloatExponent(value);
+		}
+		return processDecFloatSuffix(value);
+	}
+		
 	Token processDecNumber(dchar c) {
 		_pos--;
 		_sharedIntegerToken.setPos(_line, _pos);
+		_sharedRealToken.setPos(_line, _pos);
 		if (_pos >= _len)
 			parserError("Unexpected end of line in number");
 		int digits = 0;
@@ -1521,6 +1656,13 @@ class Tokenizer
 		if (overflow)
 			parserError("number is too big to fit 64 bits");
 		_sharedIntegerToken.setValue(number);
+		dchar next = _pos < _len ? _lineText[_pos] : 0;
+		if (next == 0)
+			return _sharedIntegerToken;
+		if (next == '.') {
+			_pos++;
+			return processDecFloatSecondPart(number);
+		}
 		return processIntegerSuffix();
 	}
 		
@@ -2099,7 +2241,9 @@ class Tokenizer
 		}
 		if (ch >= '0' && ch <= '9')
 			return processDecNumber(ch);
-		
+		if (ch == '.' && next >= '0' && next <= '9') // .123
+			return processDecFloatSecondPart(0);
+				
 		if (ch == '_' || isUniversalAlpha(ch)) {
 			// start of identifier or keyword?
 			Keyword keyword = detectKeyword(ch);
@@ -2243,6 +2387,31 @@ unittest {
 			return "Integer:" ~ to!string(_value);
 		}
 	}
+	class RealTest : TokenTest {
+		real _value;
+		ubyte _precision;
+		bool _imaginary;
+		this(real value, ubyte precision = 1, bool imaginary = false, string file = __FILE__, uint line = __LINE__) {
+			super(file, line);
+			_value = value;
+			_precision = precision;
+			_imaginary = imaginary;
+		}
+		override bool doTest(Token token) {
+			if (token.type != TokenType.FLOAT)
+				return false;
+			if (token.realValue != _value)
+				return false;
+			if (token.precision != _precision)
+				return false;
+			if (token.isImaginary != _imaginary)
+				return false;
+			return true;
+		}		
+		public override @property string toString() {
+			return "Real:" ~ to!string(_value);
+		}
+	}
 	class IdentTest : TokenTest {
 		string _value;
 		this(string value, string file = __FILE__, uint line = __LINE__) {
@@ -2305,6 +2474,9 @@ unittest {
 	TokenTest checkInteger(ulong value, bool unsignedFlag = false, bool longFlag = false, string file = __FILE__, uint line = __LINE__) { 
 		return new IntegerTest(value, unsignedFlag, longFlag, file, line);
 	}
+	TokenTest checkReal(real value, byte precision = 0, bool imaginary = false, string file = __FILE__, uint line = __LINE__) { 
+		return new RealTest(value, precision, imaginary, file, line);
+	}
 	TokenTest checkIdent(string value, string file = __FILE__, uint line = __LINE__) { 
 		return new IdentTest(value, file, line);
 	}
@@ -2334,7 +2506,7 @@ TEST"
 			checkOp(OpCode.SEMICOLON),
 			checkEOF()
 		]);
-	testTokenizer("0b1101 0x123abcdU 0xABCL 0743 192837465 0 192_837_465"
+	testTokenizer("0b1101 0x123abcdU 0xABCL 0743 192837465 0 192_837_465 5.25"
 			, [
 			checkInteger(13),
 			checkSpace(),
@@ -2349,6 +2521,8 @@ TEST"
 			checkInteger(0),
 			checkSpace(),
 			checkInteger(192837465),
+			checkSpace(),
+			checkReal(5.25),
 			checkEOF()
 		]);
 }
