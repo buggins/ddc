@@ -1454,16 +1454,68 @@ class Tokenizer
 	}
 	
 	Token processOctNumber() {
-		_pos++;
+		_sharedIntegerToken.setPos(_line, _pos - 1);
 		if (_pos >= _len)
-			parserError("Unexpected end of line in oct number");
+			parserError("Unexpected end of line in octal number");
 		int digits = 0;
 		ulong number = 0;
-		return null;
+		uint i = _pos;
+		bool overflow = false;
+		for (;i < _len; i++) {
+			dchar ch = _lineText[i];
+			uint digit = 0;
+			if (ch >= '0' && ch <= '7')
+				digit = ch - '0';
+			else
+				break;
+			number <<= 3;
+			if (digits >= 20) {
+				if ((number >> 3) << 3 != number) {
+					overflow = true;
+					break;
+				}
+			}
+			number |= digit;
+			digits++;
+		}
+		_pos = i;
+		if (overflow)
+			parserError("number is too big to fit 64 bits");
+		_sharedIntegerToken.setValue(number);
+		return processIntegerSuffix();
 	}
 	
-	Token processDecNumber(dchar ch) {
-		return null;
+	Token processDecNumber(dchar c) {
+		_pos--;
+		_sharedIntegerToken.setPos(_line, _pos);
+		if (_pos >= _len)
+			parserError("Unexpected end of line in number");
+		int digits = 0;
+		ulong number = 0;
+		uint i = _pos;
+		bool overflow = false;
+		for (;i < _len; i++) {
+			dchar ch = _lineText[i];
+			uint digit = 0;
+			if (ch >= '0' && ch <= '9')
+				digit = ch - '0';
+			else
+				break;
+			number *= 10;
+			if (digits >= 18) {
+				if ((number * 10) / 10 != number) {
+					overflow = true;
+					break;
+				}
+			}
+			number += digit;
+			digits++;
+		}
+		_pos = i;
+		if (overflow)
+			parserError("number is too big to fit 64 bits");
+		_sharedIntegerToken.setValue(number);
+		return processIntegerSuffix();
 	}
 		
 	void parserError(string msg) {
@@ -2276,13 +2328,19 @@ TEST"
 			checkOp(OpCode.SEMICOLON),
 			checkEOF()
 		]);
-	testTokenizer("0b1101 0x123abcdU 0xABCL"
+	testTokenizer("0b1101 0x123abcdU 0xABCL 0743 192837465 0"
 			, [
 			checkInteger(13),
 			checkSpace(),
 			checkInteger(0x123abcd, true, false),
 			checkSpace(),
 			checkInteger(0xabc, false, true),
+			checkSpace(),
+			checkInteger(std.conv.octal!743),
+			checkSpace(),
+			checkInteger(192837465),
+			checkSpace(),
+			checkInteger(0),
 			checkEOF()
 		]);
 }
