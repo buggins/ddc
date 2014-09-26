@@ -1,0 +1,15 @@
+Debug
+Release
+Unittest
+docs
+ui.log
+obj
+*.suo
+*.userprefs
+Thumbs.db
+.dub
+bin
+*.obj
+*.~*
+*.*~
+.*.sw*
