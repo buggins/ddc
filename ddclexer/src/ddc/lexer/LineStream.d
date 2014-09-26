@@ -15,6 +15,11 @@ class LineStream {
         UTF32LE
     };
 
+	static immutable uint LINE_POSITION_UNDEFINED = uint.max;
+	static immutable int TEXT_BUFFER_SIZE = 1024;
+	static immutable int BYTE_BUFFER_SIZE = 512;
+	static immutable int QUARTER_BYTE_BUFFER_SIZE = BYTE_BUFFER_SIZE / 4;
+
     InputStream _stream;
 	string _filename;
     ubyte[] _buf;  // stream reading buffer
@@ -122,7 +127,6 @@ class LineStream {
 	// override to decode text
 	abstract uint decodeText();
 	
-	immutable uint LINE_POSITION_UNDEFINED = uint.max;
 	public dchar[] readLine() {
 		if (_errorCode != 0) {
 			//writeln("error ", _errorCode, ": ", _errorMessage, " in line ", _errorLine);
@@ -204,9 +208,6 @@ class LineStream {
 		return _textBuf[lineStart .. lineEnd];
 	}
 	
-	immutable int TEXT_BUFFER_SIZE = 1024;
-	immutable int BYTE_BUFFER_SIZE = 512;
-	immutable int QUARTER_BYTE_BUFFER_SIZE = BYTE_BUFFER_SIZE / 4;
 	
 	// factory for string parser
 	public static LineStream create(string code, string filename = "") {

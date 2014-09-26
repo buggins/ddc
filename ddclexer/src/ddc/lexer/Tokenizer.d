@@ -892,7 +892,10 @@ public Keyword findKeyword(Keyword start, Keyword end, dchar * name, uint len, r
 	}
 	return Keyword.NONE;
 }
-			
+
+/**
+ * Token.
+ */
 class Token {
 	protected TokenType _type;
 	protected string _file;
@@ -1193,8 +1196,10 @@ class Tokenizer
 	uint _pos; // current line read position
 	uint _state; // tokenizer state
 	
-	immutable dchar EOF_CHAR = 0x001A;
-	immutable dchar EOL_CHAR = 0x000A;
+	enum : int {
+		EOF_CHAR = 0x001A,
+		EOL_CHAR = 0x000A
+	};
 	
 	WhiteSpaceToken _sharedWhiteSpaceToken = new WhiteSpaceToken();
 	CommentToken _sharedCommentToken = new CommentToken();
@@ -2172,8 +2177,8 @@ class Tokenizer
 		return to!dstring(buildTime);
 	}
 	
-	immutable dstring VERSION = "0.1";
-	immutable dstring VENDOR = "coolreader.org";
+	static immutable dstring VERSION = "0.1";
+	static immutable dstring VENDOR = "coolreader.org";
 	
 	Token makeSpecialTokenString(dstring str, uint pos) {
 		_sharedStringLiteralToken.setPos(_line, pos);
