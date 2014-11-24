@@ -5,6 +5,17 @@ import ddc.lexer.exceptions;
 import std.stdio;
 import std.conv;
 
+/**
+ * Source file information.
+ */
+class SourceFile {
+	protected string _file;
+	public @property string filename() { return _file; }
+    public this(string filename) {
+        _file = filename;
+    }
+}
+
 class LineStream {
 	public enum EncodingType {
         ASCII,
@@ -22,6 +33,7 @@ class LineStream {
 
     InputStream _stream;
 	string _filename;
+    SourceFile _file;
     ubyte[] _buf;  // stream reading buffer
     uint _pos; // reading position of stream buffer
     uint _len; // number of bytes in stream buffer
@@ -33,7 +45,8 @@ class LineStream {
 	dchar[] _textBuf; // text buffer
 	bool _eof; // end of file, no more lines
 	
-	@property string filename() { return _filename; }
+	@property SourceFile file() { return _file; }
+	@property string filename() { return _file.filename; }
 	@property uint line() { return _line; }
 	@property EncodingType encoding() { return _encoding; }
 	@property int errorCode() { return _errorCode; }
@@ -48,8 +61,8 @@ class LineStream {
 	uint _errorLine;
 	uint _errorPos;
 
-	protected this(InputStream stream, string filename, EncodingType encoding, ubyte[] buf, uint offset, uint len) {
-		_filename = filename;
+	protected this(InputStream stream, SourceFile file, EncodingType encoding, ubyte[] buf, uint offset, uint len) {
+		_file = file;
 		_stream = stream;
 		_encoding = encoding;
 		_buf = buf;
@@ -256,7 +269,7 @@ class LineStream {
 
 class AsciiLineStream : LineStream {
 	this(InputStream stream, string filename, ubyte[] buf, uint len) {
-		super(stream, filename, EncodingType.ASCII, buf, 0, len);
+		super(stream, new SourceFile(filename), EncodingType.ASCII, buf, 0, len);
 	}	
 	override uint decodeText() {
 		if (invalidCharFlag) {
@@ -289,7 +302,7 @@ class AsciiLineStream : LineStream {
 
 class Utf8LineStream : LineStream {
 	this(InputStream stream, string filename, ubyte[] buf, uint len) {
-		super(stream, filename, EncodingType.UTF8, buf, 3, len);
+		super(stream, new SourceFile(filename), EncodingType.UTF8, buf, 3, len);
 	}
 	override uint decodeText() {
 		if (invalidCharFlag) {
@@ -405,7 +418,7 @@ class Utf8LineStream : LineStream {
 
 class Utf16beLineStream : LineStream {
 	this(InputStream stream, string filename, ubyte[] buf, uint len) {
-		super(stream, filename, EncodingType.UTF16BE, buf, 2, len);
+		super(stream, new SourceFile(filename), EncodingType.UTF16BE, buf, 2, len);
 	}
 	override uint decodeText() {
 		if (invalidCharFlag) {
@@ -439,7 +452,7 @@ class Utf16beLineStream : LineStream {
 
 class Utf16leLineStream : LineStream {
 	this(InputStream stream, string filename, ubyte[] buf, uint len) {
-		super(stream, filename, EncodingType.UTF16LE, buf, 2, len);
+		super(stream, new SourceFile(filename), EncodingType.UTF16LE, buf, 2, len);
 	}	
 	override uint decodeText() {
 		if (invalidCharFlag) {
@@ -473,7 +486,7 @@ class Utf16leLineStream : LineStream {
 
 class Utf32beLineStream : LineStream {
 	this(InputStream stream, string filename, ubyte[] buf, uint len) {
-		super(stream, filename, EncodingType.UTF32BE, buf, 4, len);
+		super(stream, new SourceFile(filename), EncodingType.UTF32BE, buf, 4, len);
 	}	
 	override uint decodeText() {
 		if (invalidCharFlag) {
@@ -512,7 +525,7 @@ class Utf32beLineStream : LineStream {
 
 class Utf32leLineStream : LineStream {
 	this(InputStream stream, string filename, ubyte[] buf, uint len) {
-		super(stream, filename, EncodingType.UTF32LE, buf, 4, len);
+		super(stream, new SourceFile(filename), EncodingType.UTF32LE, buf, 4, len);
 	}	
 	override uint decodeText() {
 		if (invalidCharFlag) {

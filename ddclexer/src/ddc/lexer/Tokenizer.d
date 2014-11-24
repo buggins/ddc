@@ -247,10 +247,6 @@ const uint[1728] UNIVERSAL_ALPHA_FLAGS = [
 
 // returns true if character is A..Z, a..z, _ or universal alpha
 public bool isUniversalAlpha(dchar ch) pure nothrow {
-//	uint index = ch >> 5;
-//	uint mask = 1 << (ch & 31);
-//	uint value = UNIVERSAL_ALPHA_FLAGS[index];
-//	return (ch <= 0xd7ff && (value & mask) != 0);
 	return (ch <= 0xd7ff && (UNIVERSAL_ALPHA_FLAGS[ch >> 5] & (1 << (ch & 31))));
 }
 
@@ -574,7 +570,7 @@ immutable dstring[] OP_CODE_STRINGS = [
 	"=>",
 	"#"
 ];
-	
+
 dstring getOpNameD(OpCode op) pure nothrow {
 	return OP_CODE_STRINGS[op];
 };
@@ -897,12 +893,12 @@ public Keyword findKeyword(Keyword start, Keyword end, dchar * name, uint len, r
  * Token.
  */
 class Token {
-	protected TokenType _type;
-	protected string _file;
+	protected SourceFile _file;
 	protected uint _line;
 	protected uint _pos;
+	protected TokenType _type;
 	public @property TokenType type() { return _type; }
-	public @property string filename() { return _file; }
+	public @property string filename() { return _file.filename; }
 	public @property uint line() { return _line; }
 	public @property uint pos() { return _pos; }
 	public @property dchar[] text() { return null; }
@@ -917,27 +913,33 @@ class Token {
 	public @property bool isImaginary() { return false; }
 	public @property OpCode opCode() { return OpCode.NONE; }
 	public @property Keyword keyword() { return Keyword.NONE; }
+
 	this(TokenType type) {
 		_type = type;
 	}
-	this(TokenType type, string file, uint line, uint pos) {
+
+	this(TokenType type, SourceFile file, uint line, uint pos) {
 		_type = type;
 		_file = file;
 		_line = line;
 		_pos = pos;
 	}
-	void setPos(string file, uint line, uint pos) {
+
+	void setPos(SourceFile file, uint line, uint pos) {
 		_file = file;
 		_line = line;
 		_pos = pos + 1;
 	}
-	void setFile(string file) {
+
+	void setFile(SourceFile file) {
 		_file = file;
 	}
+
 	void setPos(uint line, uint pos) {
 		_line = line;
 		_pos = pos + 1;
 	}
+
 	public abstract Token clone();
 	public override @property string toString() {
 		return "" ~ to!string(_line) ~ ":" ~ to!string(_pos) ~ " " ~ to!string(type) ~ " " ~ to!string(opCode) ~ " " ~ to!string(keyword) 
@@ -949,7 +951,7 @@ class EofToken : Token {
 	this() {
 		super(TokenType.EOF);
 	}
-	this(string file, uint line, uint pos) {
+	this(SourceFile file, uint line, uint pos) {
 		super(TokenType.EOF, file, line, pos);
 	}
 	override public Token clone() {
@@ -971,7 +973,7 @@ class WhiteSpaceToken : Token {
 	this() {
 		super(TokenType.WHITESPACE);
 	}
-	this(string file, uint line, uint pos) {
+	this(SourceFile file, uint line, uint pos) {
 		super(TokenType.WHITESPACE, file, line, pos);
 	}
 	override public Token clone() {
@@ -990,7 +992,7 @@ class OpToken : Token {
 	this() {
 		super(TokenType.OP);
 	}
-	this(string file, uint line, uint pos) {
+	this(SourceFile file, uint line, uint pos) {
 		super(TokenType.OP, file, line, pos);
 	}
 	override public Token clone() {
@@ -1009,7 +1011,7 @@ class KeywordToken : Token {
 	this() {
 		super(TokenType.KEYWORD);
 	}
-	this(string file, uint line, uint pos) {
+	this(SourceFile file, uint line, uint pos) {
 		super(TokenType.KEYWORD, file, line, pos);
 	}
 	override public Token clone() {
@@ -1029,7 +1031,7 @@ class CommentToken : Token {
 	this() {
 		super(TokenType.COMMENT);
 	}
-	this(string file, uint line, uint pos, dchar[] text) {
+	this(SourceFile file, uint line, uint pos, dchar[] text) {
 		super(TokenType.COMMENT, file, line, pos);
 		_text = text;
 	}
@@ -1050,7 +1052,7 @@ class StringLiteralToken : Token {
 	this() {
 		super(TokenType.STRING);
 	}
-	this(string file, uint line, uint pos, dchar[] text, dchar type) {
+	this(SourceFile file, uint line, uint pos, dchar[] text, dchar type) {
 		super(TokenType.STRING, file, line, pos);
 		_text = text;
 		_literalType = type;
@@ -1083,7 +1085,7 @@ class IntegerLiteralToken : Token {
 	this() {
 		super(TokenType.INTEGER);
 	}
-	this(string file, uint line, uint pos, ulong value, bool unsignedFlag, bool longFlag) {
+	this(SourceFile file, uint line, uint pos, ulong value, bool unsignedFlag, bool longFlag) {
 		super(TokenType.INTEGER, file, line, pos);
 		_value = value;
 		_unsigned = unsignedFlag;
@@ -1120,7 +1122,7 @@ class RealLiteralToken : Token {
 	this() {
 		super(TokenType.FLOAT);
 	}
-	this(string file, uint line, uint pos, real value, byte precision, bool imaginary) {
+	this(SourceFile file, uint line, uint pos, real value, byte precision, bool imaginary) {
 		super(TokenType.FLOAT, file, line, pos);
 		_value = value;
 		_precision = precision;
@@ -1141,7 +1143,7 @@ class IdentToken : Token {
 	this() {
 		super(TokenType.IDENTIFIER);
 	}
-	this(string file, uint line, uint pos, dchar[] text) {
+	this(SourceFile file, uint line, uint pos, dchar[] text) {
 		super(TokenType.IDENTIFIER, file, line, pos);
 		_text = text;
 	}
@@ -1220,14 +1222,14 @@ class Tokenizer
 	
 	this(LineStream lineStream) {
 		_lineStream = lineStream;
-		_sharedWhiteSpaceToken.setFile(_lineStream.filename);
-		_sharedCommentToken.setFile(_lineStream.filename);
-		_sharedStringLiteralToken.setFile(_lineStream.filename);
-		_sharedIdentToken.setFile(_lineStream.filename);
-		_sharedOpToken.setFile(_lineStream.filename);
-		_sharedKeywordToken.setFile(_lineStream.filename);
-		_sharedIntegerToken.setFile(_lineStream.filename);
-		_sharedRealToken.setFile(_lineStream.filename);
+		_sharedWhiteSpaceToken.setFile(_lineStream.file);
+		_sharedCommentToken.setFile(_lineStream.file);
+		_sharedStringLiteralToken.setFile(_lineStream.file);
+		_sharedIdentToken.setFile(_lineStream.file);
+		_sharedOpToken.setFile(_lineStream.file);
+		_sharedKeywordToken.setFile(_lineStream.file);
+		_sharedIntegerToken.setFile(_lineStream.file);
+		_sharedRealToken.setFile(_lineStream.file);
 		buildTime = Clock.currTime();
 	}
 	
@@ -1278,7 +1280,7 @@ class Tokenizer
 	
 	Token emitEof() {
 		// TODO: check for current state
-		return new EofToken(_lineStream.filename, _line, _pos);
+		return new EofToken(_lineStream.file, _line, _pos);
 	}
 	
 	Token processWhiteSpace(dchar firstChar) {

@@ -44,13 +44,14 @@ void main(string[] args)
     // Prints "Hello World" string in console
     string sampleCode = q"CODE
 import std.stdio;
+
 /* comment for function */
 int f1(int x) {
-return x * x * 2;
+    return x * x * 2;
 }
-void main(string[] args) {
-writeln("Hello world");
 
+void main(string[] args) {
+    writeln("Hello world");
 }
 CODE";
 	dumpLines(sampleCode);
