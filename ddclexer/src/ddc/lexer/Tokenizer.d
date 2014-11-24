@@ -1043,6 +1043,69 @@ class CommentToken : Token {
 	}
 }
 
+alias tokenizer_ident_t = uint;
+alias tokenizer_ident_name_t = dchar[];
+
+enum : tokenizer_ident_t {
+    NO_IDENT = 0
+}
+
+/**
+ * Global storage for identifier strings.
+ */
+class IdentHolder {
+    protected tokenizer_ident_t _nextId;
+    protected tokenizer_ident_name_t[tokenizer_ident_t] _idToName;
+    protected tokenizer_ident_t[tokenizer_ident_name_t] _nameToId;
+
+    public this() {
+        _nextId = NO_IDENT + 1;
+    }
+
+    /**
+    * Search for id by name, return NO_IDENT if not found.
+    */
+    uint findByName(tokenizer_ident_name_t name) {
+        tokenizer_ident_t * found = (name in _nameToId);
+        if (found)
+            return *found; 
+        return NO_IDENT;
+    }
+
+    /**
+    * Search for name by id, return null if not found.
+    */
+    tokenizer_ident_name_t nameById(tokenizer_ident_t id) {
+        auto found = (id in _idToName);
+        if (found)
+            return *found;
+        return null;
+    }
+
+    /**
+     * Search for ident id by name, create new entry if not found.
+     */
+    tokenizer_ident_t idByName(tokenizer_ident_name_t name) {
+        uint * found = (name in _nameToId);
+        if (found)
+            return *found; 
+        uint newid = _nextId++;
+        _nameToId[cast(dstring)name] = newid;
+        _idToName[newid] = cast(tokenizer_ident_name_t)name;
+        return newid;
+    }
+}
+
+/**
+* Thread local storage for IDs.
+*/
+IdentHolder identMap;
+
+static this() {
+    // init ID storage
+    identMap = new IdentHolder();
+}
+
 class StringLiteralToken : Token {
 	dchar[] _text;
 	dchar _literalType;
@@ -1137,21 +1200,25 @@ class RealLiteralToken : Token {
 }
 
 class IdentToken : Token {
-	dchar[] _text;
-	public @property override dchar[] text() { return _text; }
-	public void setText(dchar[] text) { _text = text; }
+	tokenizer_ident_t _id;
+	public @property override dchar[] text() { return identMap.nameById(_id); }
+	public void setText(dchar[] text) { _id = identMap.idByName(text); }
 	this() {
 		super(TokenType.IDENTIFIER);
 	}
 	this(SourceFile file, uint line, uint pos, dchar[] text) {
 		super(TokenType.IDENTIFIER, file, line, pos);
-		_text = text;
+		_id = identMap.idByName(text);
+	}
+	this(SourceFile file, uint line, uint pos, tokenizer_ident_t id) {
+		super(TokenType.IDENTIFIER, file, line, pos);
+		_id = id;
 	}
 	override public Token clone() {
-		return new IdentToken(_file, _line, _pos, _text.dup);
+		return new IdentToken(_file, _line, _pos, _id);
 	}
 	public override @property string toString() {
-		return "Ident:" ~ to!string(_text);
+		return "Ident:" ~ to!string(text);
 	}
 }
 
