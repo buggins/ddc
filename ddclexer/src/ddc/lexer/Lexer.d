@@ -15,8 +15,12 @@ enum LexemType : ushort {
 	BASIC_TYPE_X,
 	BASIC_TYPE_2,
 	IDENTIFIER_LIST,
+	IDENTIFIER,
 	TYPEOF,
+    // templates
     TEMPLATE_INSTANCE,
+    EXPRESSION,
+    ALT_DECLARATOR,
 }
 
 class Lexem {
@@ -122,6 +126,21 @@ class TypeCtors : Lexem {
 }
 
 /**
+    Identifier.
+*/
+class Identifier : Lexem {
+    IdentToken _token;
+	public override @property LexemType type() { return LexemType.IDENTIFIER; }
+	public this(Token identifier)
+	in {
+        assert(identifier.type == TokenType.IDENTIFIER);
+	}
+	body {
+        _token = cast(IdentToken)identifier;
+	}
+}
+
+/**
     Identifier list.
 
     IdentifierList:
@@ -131,11 +150,24 @@ class TypeCtors : Lexem {
         TemplateInstance . IdentifierList
  */
 class IdentifierList : Lexem {
+    public Identifier _identifier;
+    public IdentifierList _identifierList;
+    public TemplateInstance _templateInstance;
 	public override @property LexemType type() { return LexemType.IDENTIFIER_LIST; }
-	public this()
+	public this(Token ident, IdentifierList identifierList = null)
+	in {
+        assert(ident.type == TokenType.IDENTIFIER);
+	}
+	body {
+        _identifier = new Identifier(ident);
+        _identifierList = identifierList;
+	}
+	public this(TemplateInstance templateInstance, IdentifierList identifierList = null)
 	in {
 	}
 	body {
+        _templateInstance = templateInstance;
+        _identifierList = identifierList;
 	}
 }
 
@@ -147,6 +179,98 @@ class IdentifierList : Lexem {
 */
 class TemplateInstance : Lexem {
 	public override @property LexemType type() { return LexemType.TEMPLATE_INSTANCE; }
+	public this()
+	in {
+	}
+	body {
+	}
+}
+
+/**
+    Basic type.
+
+    BasicType:
+        BasicTypeX
+        . IdentifierList
+        IdentifierList
+        Typeof
+        Typeof . IdentifierList
+        TypeCtor ( Type )
+*/
+class BasicType : Lexem {
+    public BasicTypeX _basicTypeX;
+    public IdentifierList _identifierList;
+    public Typeof _typeof;
+    public TypeCtor _typeCtor;
+    public Type _typeCtorType;
+    public bool _dotBeforeIdentifierList;
+	public override @property LexemType type() { return LexemType.BASIC_TYPE; }
+	public this()
+	in {
+	}
+	body {
+	}
+}
+
+
+
+/**
+    Typeof.
+
+    Typeof:
+        typeof ( Expression )
+        typeof ( return )
+    
+    For typeof(return), _expression is null
+*/
+class Typeof : Lexem {
+    public Expression _expression;
+	public override @property LexemType type() { return LexemType.TYPEOF; }
+	public this(Expression expression)
+	in {
+	}
+	body {
+        _expression = expression;
+	}
+}
+
+/**
+    Type.
+
+*/
+class Type : Lexem {
+    public TypeCtors _typeCtors;
+    public BasicType _basicType;
+    public AltDeclarator _altDeclarator;
+	public override @property LexemType type() { return LexemType.TYPE; }
+	public this()
+	in {
+	}
+	body {
+	}
+}
+
+/**
+    Expression.
+
+    Expression:
+*/
+class Expression : Lexem {
+	public override @property LexemType type() { return LexemType.EXPRESSION; }
+	public this()
+	in {
+	}
+	body {
+	}
+}
+
+/**
+    AltDeclarator.
+
+    AltDeclarator:
+*/
+class AltDeclarator : Lexem {
+	public override @property LexemType type() { return LexemType.ALT_DECLARATOR; }
 	public this()
 	in {
 	}
