@@ -49,7 +49,18 @@ bool isBasicTypeXToken(Token token) {
 		|| id == Keyword.VOID;
 }
 
-// Single token, one of bool, byte, ubyte, short, ushort, int, uint, long, ulong, 
+// Returns true for  one of keywords: const, immutable, inout, shared
+bool isTypeCtorToken(Token token) {
+	if (token.type != TokenType.KEYWORD)
+		return false;
+	Keyword id = token.keyword;
+	return id == Keyword.CONST
+		|| id == Keyword.IMMUTABLE
+		|| id == Keyword.INOUT
+		|| id == Keyword.SHARED;
+}
+
+// Single token, one of keywords: bool, byte, ubyte, short, ushort, int, uint, long, ulong, 
 // char, wchar, dchar, float, double, real, ifloat, idouble, ireal, cfloat, cdouble, creal, void
 class BasicTypeX : Lexem {
 	public Token _token;
@@ -62,6 +73,51 @@ class BasicTypeX : Lexem {
 		_token = token;
 	}
 }
+
+// Returns true for  one of keywords: const, immutable, inout, shared
+bool isTypeCtorToken(Token token) {
+	if (token.type != TokenType.KEYWORD)
+		return false;
+	Keyword id = token.keyword;
+	return id == Keyword.CONST
+		|| id == Keyword.IMMUTABLE
+		|| id == Keyword.INOUT
+		|| id == Keyword.SHARED;
+}
+
+// Single token, one of keywords: const, immutable, inout, shared
+class TypeCtor : Lexem {
+	public Token _token;
+	public override @property LexemType type() { return LexemType.TYPE_CTOR; }
+	public this(Token token)
+	in {
+		assert(isTypeCtorToken(token));
+	}
+	body {
+		_token = token;
+	}
+}
+
+// Single token, one of keywords: const, immutable, inout, shared
+class TypeCtors : Lexem {
+	public TypeCtor _list;
+	public override @property LexemType type() { return LexemType.TYPE_CTORS; }
+	public this(Token token)
+	in {
+		assert(isTypeCtorToken(token));
+	}
+	body {
+		_list ~= token;
+	}
+	public void append(Token token)
+	in {
+		assert(isTypeCtorToken(token));
+	}
+	body {
+		_list ~= token;
+	}
+}
+
 
 class Lexer
 {
