@@ -206,6 +206,7 @@
   <Folder name="ddc">
    <Folder name="lexer">
     <File path="ddc\lexer\exceptions.d" />
+    <File path="ddc\lexer\linestream.d" />
     <File path="ddc\lexer\textsource.d" />
     <File path="ddc\lexer\tokenizer.d" />
     <File path="ddc\lexer\unialpha.d" />

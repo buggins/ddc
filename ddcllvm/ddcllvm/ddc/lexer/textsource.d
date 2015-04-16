@@ -10,7 +10,7 @@ private import std.array;
 class SourceFile {
 	protected string _filename;
 	@property string filename() { return _filename; }
-    public this(string filename) {
+    public this(string filename = null) {
         _filename = filename;
     }
     override @property string toString() {
@@ -40,6 +40,14 @@ interface SourceLines {
     /// read line, return null if EOF reached or error occured
     dchar[] readLine();
 }
+
+struct SourceLine {
+    string text;
+    SourceFile file;
+    int line;
+    int offset;
+}
+
 
 const TEXT_SOURCE_ERROR_EOF = 1;
 
