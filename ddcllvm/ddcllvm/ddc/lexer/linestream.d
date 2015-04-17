@@ -120,7 +120,7 @@ struct TextFileFormat {
     }
 
     string toString() {
-        return to!string(encoding) ~ " " ~ to!string(lineEnding) ~ (bom ? " bom" : "");
+        return to!string(encoding) ~ " " ~ to!string(lineEnding) ~ (bom ? " bom" : "" ~ (mixedLineEndings ? " mixedLineEndings" : ""));
     }
 }
 
@@ -145,7 +145,7 @@ private void decodeSourceBytesUtf8(ubyte[] buf, ref char[] res, ref TextFileForm
         if (!(ch0 & 0x80)) {
             // 0x00..0x7F single byte
             pos++;
-        } if ((ch0 & 0xE0) == 0xC0) {
+        } else if ((ch0 & 0xE0) == 0xC0) {
             // two bytes 110xxxxx 10xxxxxx
             if (pos + 1 >= buf.length)
                 break;
@@ -156,7 +156,7 @@ private void decodeSourceBytesUtf8(ubyte[] buf, ref char[] res, ref TextFileForm
 			}
             res[pos + 1] = ch1;
             pos += 2;
-        } if ((ch0 & 0xF0) == 0xE0) {
+        } else if ((ch0 & 0xF0) == 0xE0) {
             // three bytes 1110xxxx 10xxxxxx 10xxxxxx
             if (pos + 2 >= buf.length)
                 break;
@@ -169,7 +169,7 @@ private void decodeSourceBytesUtf8(ubyte[] buf, ref char[] res, ref TextFileForm
             res[pos + 1] = ch1;
             res[pos + 2] = ch2;
             pos += 3;
-        } if ((ch0 & 0xF8) == 0xF0) {
+        } else if ((ch0 & 0xF8) == 0xF0) {
             // four bytes 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
             if (pos + 3 >= buf.length)
                 break;
@@ -184,12 +184,12 @@ private void decodeSourceBytesUtf8(ubyte[] buf, ref char[] res, ref TextFileForm
             res[pos + 2] = ch2;
             res[pos + 3] = ch3;
             pos += 4;
-        } if ((ch0 & 0xFC) == 0xF8) {
+        } else if ((ch0 & 0xFC) == 0xF8) {
             // five bytes 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
             // character code is too big (> 0x100000)
             fmt.errorCode = SourceError.WrongEncoding;
             break;
-        } if ((ch0 & 0xFE) == 0xFC) {
+        } else if ((ch0 & 0xFE) == 0xFC) {
             // six bytes 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
             // character code is too big (> 0x100000)
             fmt.errorCode = SourceError.WrongEncoding;
@@ -416,13 +416,13 @@ TextFileFormat decodeSourceBytes(ubyte[] buf, ref char[] res) {
     return fmt;
 }
 
-
+/// source text lines converted to utf8 and LF line endings w/o BOM, splet into separate lines
 class TextLines : SourceFile {
     private SourceLine[] _lines;
     private string _source;
     private TextFileFormat _fmt;
 
-    @property TextFileFormat format() { return _fmt; }
+    @property TextFileFormat format() const { return _fmt; }
     @property void format(TextFileFormat fmt) { _fmt = fmt; }
 
     void clear() {
@@ -432,22 +432,22 @@ class TextLines : SourceFile {
         _source = null;
     }
 
-    @property int lineCount() {
+    @property int lineCount() const {
         return cast(int)_lines.length;
     }
 
-    string lineText(int index) {
+    string lineText(int index) const {
         assert(index >= 0 && index < _lines.length);
         return _lines[index].text;
     }
 
-    SourceLine * line(int index) {
+    const(SourceLine) * line(int index) const {
         assert(index >= 0 && index < _lines.length);
         return &_lines[index];
     }
 
     /// return slice of source text range
-    string rangeText(int startLine, int startPos, int endLine, int endPos) {
+    string rangeText(int startLine, int startPos, int endLine, int endPos) const {
         assert(startLine >= 0 && startLine < _lines.length);
         assert(endLine >= 0 && endLine < _lines.length);
         assert(startLine <= endLine);
@@ -461,18 +461,17 @@ class TextLines : SourceFile {
     }
 
     /// load source lines from file
-    bool loadFromFile(string filename) {
+    SourceError loadFromFile(string filename) {
         import std.file;
         try {
             ubyte[] bytes = cast(ubyte[])read(filename);
-            bool res = loadFromBytes(bytes);
+            SourceError res = loadFromBytes(bytes);
             _filename = filename;
             return res;
         } catch (FileException e) {
             _fmt.errorCode = SourceError.FileNotFound;
-            return false;
+            return _fmt.errorCode;
         }
-        return false;
     }
 
     /// count lines \n delimited ("" -> 1, "A\nB" -> 2. "A\nB\n" -> 3
@@ -486,7 +485,7 @@ class TextLines : SourceFile {
     }
 
     /// load source files from byte array
-    bool loadFromBytes(ubyte[] data) {
+    SourceError loadFromBytes(ubyte[] data) {
         _lines = null;
         char[] res;
         _fmt = decodeSourceBytes(data, res);
@@ -497,16 +496,16 @@ class TextLines : SourceFile {
         int index = 0;
         int lineStart = 0;
         for(int i = 0; i <= _source.length; i++) {
-            if (_source[i] == '\n' || i == _source.length) {
+            if (i == _source.length || _source[i] == '\n') {
                 _lines[index].file = this;
-                _lines[index].line = index + 1;
+                _lines[index].line = index;
                 _lines[index].text = lineStart < i ? _source[lineStart .. i] : "";
                 _lines[index].offset = i;
                 lineStart = i + 1;
                 index++;
             }
         }
-        return _fmt.errorCode == SourceError.None;
+        return _fmt.errorCode;
     }
 }
 

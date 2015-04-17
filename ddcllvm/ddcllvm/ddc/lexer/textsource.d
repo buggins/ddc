@@ -41,11 +41,12 @@ interface SourceLines {
     dchar[] readLine();
 }
 
+/// source line information: use pointer to this structure to specify file + line using single pointer
 struct SourceLine {
-    string text;
-    SourceFile file;
-    int line;
-    int offset;
+    string text; /// line text (better use slice of source file)
+    SourceFile file; /// file reference
+    int line; /// zero based line index
+    int offset; /// byte offset of line beginning from start of source text (converted into utf8, line endings are LF, BOM is removed)
 }
 
 

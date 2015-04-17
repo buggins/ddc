@@ -3,6 +3,7 @@ module ddc.lexer.tokenizer;
 import ddc.lexer.textsource;
 import ddc.lexer.exceptions;
 import ddc.lexer.unialpha;
+import ddc.lexer.linestream;
 
 import std.stdio;
 import std.datetime;
@@ -35,20 +36,261 @@ bool isIdentMiddleChar(dchar ch) pure nothrow {
 	return (ch >= '0' && ch <='9') || isUniversalAlpha(ch);
 }
 
-enum TokType : ubyte {
-    bof, // begin of file
-    eof, // end of file
-    bol, // begin of line
-    whitespace,
-    comment,
-    ident,
-    keyword,
-    str,
-    character,
-    integer,
-    floating,
-    op,
-    error
+enum CommentCode : uint {
+    single,
+    multi,
+    nested,
+}
+
+enum TokType : uint {
+    /// end of file
+    eof = 0x00000000,
+    /// whitespace (code == count of lines whitespace spans, 0 = inside single line)
+    whitespace = 0x10000000,
+    /// comment
+    comment = 0x20000000,
+    /// identifier
+    ident = 0x30000000,
+    /// keyword
+    keyword = 0x40000000,
+    /// string literal
+    str = 0x50000000,
+    /// character literal
+    character = 0x60000000,
+    /// integer literal
+    integer = 0x70000000,
+    /// floating literal
+    floating = 0x80000000,
+    /// operator
+    op = 0x90000000,
+    /// error
+    error = 0xF0000000
+}
+
+enum CharType {
+    unknown,
+    char8,
+    char16,
+    char32
+}
+
+enum TokId : uint {
+    eof = TokType.eof,
+    whitespace_singleline = TokType.whitespace,
+    comment_single = TokType.comment | CommentCode.single,
+    comment_multi = TokType.comment | CommentCode.multi,
+    comment_nested = TokType.comment | CommentCode.nested,
+
+    str_unknown = TokType.str,
+    str_8 = TokType.str | CharType.char8,
+    str_16 = TokType.str | CharType.char16,
+    str_32 = TokType.str | CharType.char32,
+
+    kw_abstract = TokType.keyword | Keyword.ABSTRACT,
+	kw_alias = TokType.keyword | Keyword.ALIAS,
+	kw_align = TokType.keyword | Keyword.ALIGN,
+	kw_asm = TokType.keyword | Keyword.ASM,
+	kw_assert = TokType.keyword | Keyword.ASSERT,
+	kw_auto = TokType.keyword | Keyword.AUTO,
+
+	kw_body = TokType.keyword | Keyword.BODY,
+	kw_bool = TokType.keyword | Keyword.BOOL,
+	kw_break = TokType.keyword | Keyword.BREAK,
+	kw_byte = TokType.keyword | Keyword.BYTE,
+
+	kw_case = TokType.keyword | Keyword.CASE,
+	kw_cast = TokType.keyword | Keyword.CAST,
+	kw_catch = TokType.keyword | Keyword.CATCH,
+	kw_cdouble = TokType.keyword | Keyword.CDOUBLE,
+	kw_cent = TokType.keyword | Keyword.CENT,
+	kw_cfloat = TokType.keyword | Keyword.CFLOAT,
+	kw_char = TokType.keyword | Keyword.CHAR,
+	kw_class = TokType.keyword | Keyword.CLASS,
+	kw_const = TokType.keyword | Keyword.CONST,
+	kw_continue = TokType.keyword | Keyword.CONTINUE,
+	kw_creal = TokType.keyword | Keyword.CREAL,
+
+	kw_dchar = TokType.keyword | Keyword.DCHAR,
+	kw_debug = TokType.keyword | Keyword.DEBUG,
+	kw_default = TokType.keyword | Keyword.DEFAULT,
+	kw_delegate = TokType.keyword | Keyword.DELEGATE,
+	kw_delete = TokType.keyword | Keyword.DELETE,
+	kw_deprecated = TokType.keyword | Keyword.DEPRECATED,
+	kw_do = TokType.keyword | Keyword.DO,
+	kw_double = TokType.keyword | Keyword.DOUBLE,
+
+	kw_else = TokType.keyword | Keyword.ELSE,
+	kw_enum = TokType.keyword | Keyword.ENUM,
+	kw_export = TokType.keyword | Keyword.EXPORT,
+	kw_extern = TokType.keyword | Keyword.EXTERN,
+
+	kw_false = TokType.keyword | Keyword.FALSE,
+	kw_final = TokType.keyword | Keyword.FINAL,
+	kw_finally = TokType.keyword | Keyword.FINALLY,
+	kw_float = TokType.keyword | Keyword.FLOAT,
+	kw_for = TokType.keyword | Keyword.FOR,
+	kw_foreach = TokType.keyword | Keyword.FOREACH,
+	kw_foreach_reverse = TokType.keyword | Keyword.FOREACH_REVERSE,
+	kw_function = TokType.keyword | Keyword.FUNCTION,
+
+	kw_goto = TokType.keyword | Keyword.GOTO,
+
+	kw_idouble = TokType.keyword | Keyword.IDOUBLE,
+	kw_if = TokType.keyword | Keyword.IF,
+	kw_ifloat = TokType.keyword | Keyword.IFLOAT,
+	kw_immutable = TokType.keyword | Keyword.IMMUTABLE,
+	kw_import = TokType.keyword | Keyword.IMPORT,
+	kw_in = TokType.keyword | Keyword.IN,
+	kw_inout = TokType.keyword | Keyword.INOUT,
+	kw_int = TokType.keyword | Keyword.INT,
+	kw_interface = TokType.keyword | Keyword.INTERFACE,
+	kw_invariant = TokType.keyword | Keyword.INVARIANT,
+	kw_ireal = TokType.keyword | Keyword.IREAL,
+	kw_is = TokType.keyword | Keyword.IS,
+
+	kw_lazy = TokType.keyword | Keyword.LAZY,
+	kw_long = TokType.keyword | Keyword.LONG,
+
+	kw_macro = TokType.keyword | Keyword.MACRO,
+	kw_mixin = TokType.keyword | Keyword.MIXIN,
+	kw_module = TokType.keyword | Keyword.MODULE,
+
+	kw_new = TokType.keyword | Keyword.NEW,
+	kw_nothrow = TokType.keyword | Keyword.NOTHROW,
+	kw_null = TokType.keyword | Keyword.NULL,
+
+	kw_out = TokType.keyword | Keyword.OUT,
+	kw_override = TokType.keyword | Keyword.OVERRIDE,
+
+	kw_package = TokType.keyword | Keyword.PACKAGE,
+	kw_pragma = TokType.keyword | Keyword.PRAGMA,
+	kw_private = TokType.keyword | Keyword.PRIVATE,
+	kw_protected = TokType.keyword | Keyword.PROTECTED,
+	kw_public = TokType.keyword | Keyword.PUBLIC,
+	kw_pure = TokType.keyword | Keyword.PURE,
+
+	kw_real = TokType.keyword | Keyword.REAL,
+	kw_ref = TokType.keyword | Keyword.REF,
+	kw_return = TokType.keyword | Keyword.RETURN,
+
+	kw_scope = TokType.keyword | Keyword.SCOPE,
+	kw_shared = TokType.keyword | Keyword.SHARED,
+	kw_short = TokType.keyword | Keyword.SHORT,
+	kw_static = TokType.keyword | Keyword.STATIC,
+	kw_struct = TokType.keyword | Keyword.STRUCT,
+	kw_super = TokType.keyword | Keyword.SUPER,
+	kw_switch = TokType.keyword | Keyword.SWITCH,
+	kw_synchronized = TokType.keyword | Keyword.SYNCHRONIZED,
+
+	kw_template = TokType.keyword | Keyword.TEMPLATE,
+	kw_this = TokType.keyword | Keyword.THIS,
+	kw_throw = TokType.keyword | Keyword.THROW,
+	kw_true = TokType.keyword | Keyword.TRUE,
+	kw_try = TokType.keyword | Keyword.TRY,
+	kw_typedef = TokType.keyword | Keyword.TYPEDEF,
+	kw_typeid = TokType.keyword | Keyword.TYPEID,
+	kw_typeof = TokType.keyword | Keyword.TYPEOF,
+
+	kw_ubyte = TokType.keyword | Keyword.UBYTE,
+	kw_ucent = TokType.keyword | Keyword.UCENT,
+	kw_uint = TokType.keyword | Keyword.UINT,
+	kw_ulong = TokType.keyword | Keyword.ULONG,
+	kw_union = TokType.keyword | Keyword.UNION,
+	kw_unittest = TokType.keyword | Keyword.UNITTEST,
+	kw_ushort = TokType.keyword | Keyword.USHORT,
+
+	kw_version = TokType.keyword | Keyword.VERSION,
+	kw_void = TokType.keyword | Keyword.VOID,
+	kw_volatile = TokType.keyword | Keyword.VOLATILE,
+
+	kw_wchar = TokType.keyword | Keyword.WCHAR,
+	kw_while = TokType.keyword | Keyword.WHILE,
+	kw_with = TokType.keyword | Keyword.WITH,
+
+	kw_file = TokType.keyword | Keyword.FILE,
+	kw_module__ = TokType.keyword | Keyword.MODULE__,
+	kw_line = TokType.keyword | Keyword.LINE,
+	kw_function__ = TokType.keyword | Keyword.FUNCTION__,
+	kw_pretty_function = TokType.keyword | Keyword.PRETTY_FUNCTION,
+
+	//Special Token	Replaced with
+	kw_date = TokType.keyword | Keyword.DATE, //	string literal of the date of compilation "mmm dd yyyy"
+	kw_eof = TokType.keyword | Keyword.EOF, //	sets the scanner to the end of the file
+	kw_time = TokType.keyword | Keyword.TIME, //	string literal of the time of compilation "hh:mm:ss"
+	kw_timestamp = TokType.keyword | Keyword.TIMESTAMP, //	string literal of the date and time of compilation "www mmm dd hh:mm:ss yyyy"
+	kw_vendor = TokType.keyword | Keyword.VENDOR, //	Compiler vendor string, such as "Digital Mars D"
+	kw_version__ = TokType.keyword | Keyword.VERSION_, //	Compiler version as an integer, such as 2001
+	
+	kw_gshared = TokType.keyword | Keyword.GSHARED,
+	kw_traits = TokType.keyword | Keyword.TRAITS,
+	kw_vector = TokType.keyword | Keyword.VECTOR,
+	kw_parameters = TokType.keyword | Keyword.PARAMETERS,
+
+
+    // operator IDs
+  	op_div = TokType.op | OpCode.DIV, 		            //    /
+	op_div_eq = TokType.op | OpCode.DIV_EQ, 	        //    /=
+	op_dot = TokType.op | OpCode.DOT, 		            //    .
+	op_dot_dot = TokType.op | OpCode.DOT_DOT, 	        //    ..
+	op_dot_dot_dot = TokType.op | OpCode.DOT_DOT_DOT,   //    ...
+	op_and = TokType.op | OpCode.AND, 		            //    &
+	op_and_eq = TokType.op | OpCode.AND_EQ, 	        //    &=
+	op_log_and = TokType.op | OpCode.LOG_AND, 	        //    &&
+	op_or = TokType.op | OpCode.OR, 		            //    |
+	op_or_eq = TokType.op | OpCode.OR_EQ, 		        //    |=
+	op_log_or = TokType.op | OpCode.LOG_OR, 	        //    ||
+	op_minus = TokType.op | OpCode.MINUS, 		        //    -
+	op_minus_eq = TokType.op | OpCode.MINUS_EQ, 	    //    -=
+	op_minus_minus = TokType.op | OpCode.MINUS_MINUS,   //    --
+	op_plus = TokType.op | OpCode.PLUS, 		        //    +
+	op_plus_eq = TokType.op | OpCode.PLUS_EQ, 	        //    +=
+	op_plus_plus = TokType.op | OpCode.PLUS_PLUS, 	    //    ++
+	op_lt = TokType.op | OpCode.LT, 		            //    <
+	op_lt_eq = TokType.op | OpCode.LT_EQ, 		        //    <=
+	op_shl = TokType.op | OpCode.SHL, 		            //    <<
+	op_shl_eq = TokType.op | OpCode.SHL_EQ, 	        //    <<=
+	op_lt_gt = TokType.op | OpCode.LT_GT, 		        //    <>
+	op_ne_eq = TokType.op | OpCode.NE_EQ, 		        //    <>=
+	op_gt = TokType.op | OpCode.GT, 		            //    >
+	op_gt_eq = TokType.op | OpCode.GT_EQ, 		        //    >=
+	op_shr_eq = TokType.op | OpCode.SHR_EQ,		        //    >>=
+	op_asr_eq = TokType.op | OpCode.ASR_EQ, 	        //    >>>=
+	op_shr = TokType.op | OpCode.SHR, 		            //    >>
+	op_asr = TokType.op | OpCode.ASR, 		            //    >>>
+	op_not = TokType.op | OpCode.NOT, 		            //    !
+	op_not_eq = TokType.op | OpCode.NOT_EQ,		        //    !=
+	op_not_lt_gt = TokType.op | OpCode.NOT_LT_GT, 	    //    !<>
+	op_not_lt_gt_eq = TokType.op | OpCode.NOT_LT_GT_EQ, //    !<>=
+	op_not_lt = TokType.op | OpCode.NOT_LT, 	        //    !<
+	op_not_lt_eq = TokType.op | OpCode.NOT_LT_EQ, 	    //    !<=
+	op_not_gt = TokType.op | OpCode.NOT_GT, 	        //    !>
+	op_not_gt_eq = TokType.op | OpCode.NOT_GT_EQ, 	    //    !>=
+	op_par_open = TokType.op | OpCode.PAR_OPEN, 	    //    (
+	op_par_close = TokType.op | OpCode.PAR_CLOSE, 	    //    )
+	op_sq_open = TokType.op | OpCode.SQ_OPEN, 	        //    [
+	op_sq_close = TokType.op | OpCode.SQ_CLOSE, 	    //    ]
+	op_curl_open = TokType.op | OpCode.CURL_OPEN, 	    //    {
+	op_curl_close = TokType.op | OpCode.CURL_CLOSE,     //    }
+	op_quest = TokType.op | OpCode.QUEST, 		        //    ?
+	op_comma = TokType.op | OpCode.COMMA, 		        //    ,
+	op_semicolon = TokType.op | OpCode.SEMICOLON,       //    ;
+	op_colon = TokType.op | OpCode.COLON, 	            //    :
+	op_dollar = TokType.op | OpCode.DOLLAR, 	        //    $
+	op_eq = TokType.op | OpCode.EQ, 		            //    =
+	op_eq_eq = TokType.op | OpCode.QE_EQ, 		        //    ==
+	op_mul = TokType.op | OpCode.MUL, 		            //    *
+	op_mul_eq = TokType.op | OpCode.MUL_EQ, 	        //    *=
+	op_mod = TokType.op | OpCode.MOD, 	                //    %
+	op_mod_eq = TokType.op | OpCode.MOD_EQ,             //    %=
+	op_xor = TokType.op | OpCode.XOR, 		            //    ^
+	op_xor_eq = TokType.op | OpCode.XOR_EQ, 	        //    ^=
+	op_log_xor = TokType.op | OpCode.LOG_XOR, 	        //    ^^
+	op_log_xor_eq = TokType.op | OpCode.LOG_XOR_EQ,     //    ^^=
+	op_inv = TokType.op | OpCode.INV, 		            //    ~
+	op_inv_eq = TokType.op | OpCode.INV_EQ, 	        //    ~=
+	op_at = TokType.op | OpCode.AT, 		            //    @
+	op_eq_gt = TokType.op | OpCode.EQ_GT, 		        //    =>
+	op_sharp = TokType.op | OpCode.SHARP, 		        //    #
 }
 
 struct StringCache {
@@ -74,33 +316,29 @@ struct StringCache {
     }
 }
 
-struct SourceLine {
-	protected SourceFile _file;
-	protected int _line;
-}
-
+// 20 - 32 bytes
+/// token structure
 struct Tok {
     // 4 bytes
-    uint id; // type[8bit] + code[24 bit]
-    @property TokType type() { return cast(TokType)(id >> 24); }
+    /// holds both type[4bit] + code[28 bit]
+    uint id; 
+    @property TokType type() { return cast(TokType)(id & 0xF0000000); }
+    @property uint code() { return (id & 0x0FFFFFFF); }
     @property void type(TokType t) {
-        id = ((cast(uint)t) << 24) | (id & 0x00FFFFFF); 
+        id = ((cast(uint)t) & 0xF0000000) | (id & 0x0FFFFFFF); 
     }
     void setType(TokType t, uint code) {
-        id = ((cast(uint)t) << 24) | (code & 0x00FFFFFF); 
+        id = ((cast(uint)t) & 0xF0000000) | (code & 0x0FFFFFFF); 
     }
     // 4 bytes
+    /// 0-based byte offset from beginning of utf-8 encoded line
     int pos;
     // 4-8 bytes
+    /// reference to source line and file
     SourceLine * line;
-
-    // 8 bytes
-    union {
-        string str;
-        long integer;
-        ulong uinteger;
-        double floating;
-    }
+    // 8 - 16 bytes
+    // value is stored as string, convert on demand
+    string str;
 }
 
 

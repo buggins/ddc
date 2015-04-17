@@ -8,9 +8,14 @@ import llvm.c;
 import llvm.util.memory;
 
 import llvmtest;
+import lexertest;
 
 int main(string[] args)
 {
+
+    version(Windows) {
+        parseAllFiles("C:\\D\\dmd2\\src\\phobos");
+    }
 
     if (!LLVM.loaded) {
 		writeln("Cannot load LLVM dll");

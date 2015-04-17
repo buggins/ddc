@@ -152,6 +152,7 @@ int fibo(string[]args) {
         writeln("error writing bitcode to file, skipping\n");
     }
 
+    writeln("press any key");
     readln();
     return 0;
 }

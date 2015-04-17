@@ -212,6 +212,7 @@
     <File path="ddc\lexer\unialpha.d" />
    </Folder>
   </Folder>
+  <File path="lexertest.d" />
   <File path="llvmtest.d" />
   <File path="main.d" />
  </Folder>
