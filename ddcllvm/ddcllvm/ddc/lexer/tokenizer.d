@@ -7,9 +7,10 @@ import ddc.lexer.linestream;
 
 import std.stdio;
 import std.datetime;
-import std.conv;
+import std.conv : to;
 import std.utf;
 import std.math;
+import std.algorithm : equal;
 
 enum TokenType : ubyte {
 	EOF,
@@ -67,19 +68,35 @@ enum TokType : uint {
     error = 0xF0000000
 }
 
-enum CharType {
+enum CharType : uint {
     unknown,
     char8,
     char16,
     char32
 }
 
+enum TokError : uint {
+    none,
+    InvalidToken,
+    UnexpectedEofInComment
+}
+
 enum TokId : uint {
     eof = TokType.eof,
+
+    whitespace = TokType.whitespace,
+
     whitespace_singleline = TokType.whitespace,
+
+    ident = TokType.ident,
+
     comment_single = TokType.comment | CommentCode.single,
     comment_multi = TokType.comment | CommentCode.multi,
     comment_nested = TokType.comment | CommentCode.nested,
+
+    error = TokType.error,
+    error_invalidToken = TokType.error | TokError.InvalidToken,
+    error_unexpectedEofInComment = TokType.error | TokError.UnexpectedEofInComment,
 
     str_unknown = TokType.str,
     str_8 = TokType.str | CharType.char8,
@@ -306,7 +323,7 @@ struct StringCache {
         _nameToId[s] = _nextId;
         if (_idToName.length <= _nextId)
             _idToName.length = _idToName.length == 0 ? 256 : _idToName.length * 2;
-        _idToName[_nextId] = s;
+        _idToName[_nextId] = s.dup;
         return _nextId++;
     }
     string get(uint id) {
@@ -322,8 +339,8 @@ struct Tok {
     // 4 bytes
     /// holds both type[4bit] + code[28 bit]
     uint id; 
-    @property TokType type() { return cast(TokType)(id & 0xF0000000); }
-    @property uint code() { return (id & 0x0FFFFFFF); }
+    @property TokType type() const { return cast(TokType)(id & 0xF0000000); }
+    @property uint code() const { return (id & 0x0FFFFFFF); }
     @property void type(TokType t) {
         id = ((cast(uint)t) & 0xF0000000) | (id & 0x0FFFFFFF); 
     }
@@ -335,12 +352,248 @@ struct Tok {
     int pos;
     // 4-8 bytes
     /// reference to source line and file
-    SourceLine * line;
+    const(SourceLine) * line;
     // 8 - 16 bytes
     // value is stored as string, convert on demand
     string str;
+
+    /// returns type or full id for tokenizer testing, depending on type
+    @property uint idForTest() {
+        switch(type) {
+            case TokType.op:
+            case TokType.comment:
+            case TokType.keyword:
+                return id;
+            default:
+                return type();
+        }
+    }
+
+    string toString() const {
+        string postext = to!string(line.line + 1) ~ ":" ~ to!string(pos + 1) ~  " ";
+        switch(type) {
+            case TokType.op:
+            case TokType.comment:
+            case TokType.keyword:
+                return postext ~ to!string(cast(TokId)id) ~ " " ~ str;
+            default:
+                return postext ~ to!string(type()) ~ " " ~ str;
+        }
+    }
 }
 
+struct Utf8Tokenizer {
+    private StringCache * _identCache;
+    private TextLines _source;
+    private const(SourceLine) * _line;
+    private int _lineIndex;
+    private string _lineText;
+    private int _lineLen;
+    private int _pos;
+    private Tok _token;
+
+    void init(StringCache * identCache, TextLines source) {
+        _identCache = identCache;
+        _source = source;
+        _lineIndex = -1;
+        nextLine();
+    }
+    
+    void startToken() {
+        _token.id = TokId.eof;
+        _token.line = _line;
+        _token.pos = _pos;
+        _token.str = null;
+    }
+
+    void updateTokenText() {
+        _token.str = _source.rangeText(_token.line.line, _token.pos, _lineIndex, _pos);
+    }
+
+    bool nextLine() {
+        if (_lineIndex + 1 >= _source.lineCount)
+            return false;
+        _lineIndex++;
+        _line = _source.line(_lineIndex);        
+        _lineText = _line.text;
+        _lineLen = cast(int)_lineText.length;
+        _pos = 0;
+        return true;
+    }
+
+    void parseWhitespace() {
+        int lineCount = 0;
+        for (;;) {
+            while (_pos >= _lineLen) {
+                // skip lines
+                if (!nextLine()) {
+                    if (_lineIndex > _token.line.line || _pos > _token.pos) {
+                        // return whitespace; EOF will be returned in next call
+                        _token.setType(TokType.whitespace, _lineIndex - _token.line.line);
+                        updateTokenText();
+                    }
+                    // returning whitespace or eof
+                    return;
+                }
+            }
+            assert(_pos < _lineLen);
+            char ch = _lineText[_pos];
+		    if (ch == 0x0020 || ch == 0x0009 || ch == 0x000B || ch == 0x000C) {
+			    // white space (treat EOL as whitespace, too)
+                _pos++;
+		    } else {
+                break;
+            }
+        }
+        _token.setType(TokType.whitespace, _lineIndex - _token.line.line);
+        updateTokenText();
+    }
+
+    void parseSingleLineComment() {
+        _token.id = TokId.comment_single;
+        _pos = _lineLen;
+        updateTokenText();
+    }
+
+    void parseMultilineComment() {
+        _pos += 2;
+        for (;;) {
+            while (_pos >= _lineLen) {
+                if (!nextLine()) {
+                    _token.id = TokId.error_unexpectedEofInComment;
+                    updateTokenText();
+                    return;
+                }
+            }
+            char ch = _lineText[_pos];
+            char ch2 = _pos + 1 < _lineLen ? _lineText[_pos + 1] : 0;
+            if (ch == '*' && ch2 == '/') {
+                _token.id = TokId.comment_multi;
+                _pos += 2;
+                updateTokenText();
+                return;
+            }
+            _pos++;
+        }
+    }
+
+    void parseNestedComment() {
+        _pos += 2;
+        int nesting = 1;
+        for (;;) {
+            while (_pos >= _lineLen) {
+                if (!nextLine()) {
+                    _token.id = TokId.error_unexpectedEofInComment;
+                    updateTokenText();
+                    return;
+                }
+            }
+            char ch = _lineText[_pos];
+            char ch2 = _pos + 1 < _lineLen ? _lineText[_pos + 1] : 0;
+            if (ch == '/' && ch2 == '+') {
+                nesting++;
+                _pos++;
+            } else if (ch == '+' && ch2 == '/') {
+                nesting--;
+                if (nesting == 0) {
+                    _token.id = TokId.comment_nested;
+                    _pos += 2;
+                    updateTokenText();
+                    return;
+                }
+                _pos++;
+            }
+            _pos++;
+        }
+    }
+
+    void errorToken() {
+        _pos++;
+        _token.id = TokId.error_invalidToken;
+        updateTokenText();
+    }
+
+    /// decode UTF8 to UTF32 character from current position, provide next position in line
+    dchar decodeChar(ref int nextPos) {
+        uint ch0 = _lineText[_pos];
+        if ((ch0 & 0x80) == 0) {
+            nextPos = _pos + 1;
+            return ch0;
+        }
+        uint ch1 = _lineText[_pos + 1];
+        if ((ch0 & 0xE0) == 0xC0) {
+            nextPos = _pos + 2;
+            return ((ch0 & 0x1F) << 6) | ((ch1 & 0x3F));
+        } 
+        uint ch2 = _lineText[_pos + 2];
+        if ((ch0 & 0xE0) == 0xE0) {
+            nextPos = _pos + 3;
+            return ((ch0 & 0x0F) << 12) | ((ch1 & 0x1F) << 6) | ((ch2 & 0x3F));
+        }
+        uint ch3 = _lineText[_pos + 3];
+        nextPos = _pos + 4;
+        return ((ch0 & 0x07) << 18) | ((ch1 & 0x3F) << 12) | ((ch2 & 0x3F) << 6) | ((ch3 & 0x3F));
+    }
+
+
+    void parseIdentOrKeyword() {
+        // first character is already skipped
+        int nextPos;
+        while (_pos < _lineLen) {
+            dchar dch = decodeChar(nextPos);
+            if (!isIdentMiddleChar(dch))
+                break;
+            _pos = nextPos;
+        }
+        _token.id = TokType.ident;
+        updateTokenText();
+        Keyword kw = findKeyword(_token.str);
+        if (kw != Keyword.NONE)
+            _token.setType(TokType.keyword, kw);
+        else {
+            uint id = _identCache.intern(_token.str);
+            _token.str = _identCache.get(id);
+            _token.setType(TokType.ident, id);
+        }
+    }
+
+    Tok nextToken() {
+        startToken();
+        if (_pos >= _lineLen) {
+            // whitespace or eof
+            parseWhitespace();
+            return _token;
+        }
+        char ch = _lineText[_pos];
+        if (ch == 0x0020 || ch == 0x0009 || ch == 0x000B || ch == 0x000C) {
+            parseWhitespace();
+            return _token;
+        }
+        char ch2 = _pos + 1 < _lineLen ? _lineText[_pos + 1] : 0;
+        char ch3 = _pos + 2 < _lineLen ? _lineText[_pos + 2] : 0;
+        if (ch == '/' && ch2 == '/') {
+            parseSingleLineComment();
+            return _token;
+        }
+        if (ch == '/' && ch2 == '*') {
+            parseMultilineComment();
+            return _token;
+        }
+        if (ch == '/' && ch2 == '+') {
+            parseNestedComment();
+            return _token;
+        }
+        int nextPos;
+        dchar dch = decodeChar(nextPos);
+        if (isIdentStartChar(dch)) {
+            _pos = nextPos;
+            parseIdentOrKeyword();
+            return _token;
+        }
+        errorToken();
+        return _token;
+    }
+}
 
 enum OpCode : ubyte {
 	NONE,       //    no op
@@ -624,7 +877,7 @@ enum Keyword : ubyte {
 
 }
 
-immutable dstring[] KEYWORD_STRINGS = [
+immutable string[] KEYWORD_STRINGS = [
 	"",
 	"abstract",
 	"alias",
@@ -768,13 +1021,17 @@ immutable dstring[] KEYWORD_STRINGS = [
 	"__parameters"
 ];
 
-public dstring getKeywordNameD(Keyword keyword) pure nothrow {
+public string getKeywordName(Keyword keyword) pure nothrow {
 	return KEYWORD_STRINGS[keyword];
+};
+
+public dstring getKeywordNameD(Keyword keyword) {
+	return toUTF32(KEYWORD_STRINGS[keyword]);
 };
 
 public Keyword findKeyword(Keyword start, Keyword end, dchar * name, int len, ref int pos) pure nothrow {
 	for (Keyword i = start; i <= end; i++) {
-		dstring s = KEYWORD_STRINGS[i];
+		string s = KEYWORD_STRINGS[i];
 		if (s.length > len + 1)
 			continue; // too long
 		bool found = true;
@@ -793,6 +1050,175 @@ public Keyword findKeyword(Keyword start, Keyword end, dchar * name, int len, re
 	}
 	return Keyword.NONE;
 }
+
+public Keyword findKeyword(Keyword start, Keyword end, string ident) pure nothrow {
+	for (Keyword i = start; i <= end; i++) {
+		string s = KEYWORD_STRINGS[i];
+        if (s.equal(ident))
+            return i;
+	}
+	return Keyword.NONE;
+}
+
+public Keyword findKeyword(string ident) {
+    char ch = ident[0];
+	if (ch > 'z')
+		return Keyword.NONE;
+	switch (cast(ubyte)ch) {
+		//	ABSTRACT,
+		//	ALIAS,
+		//	ALIGN,
+		//	ASM,
+		//	ASSERT,
+		//	AUTO,
+		case 'a': return findKeyword(Keyword.ABSTRACT, Keyword.AUTO, ident);
+
+		//	BODY,
+		//	BOOL,
+		//	BREAK,
+		//	BYTE,
+		case 'b': return findKeyword(Keyword.BODY, Keyword.BYTE, ident);
+				
+		//	CASE,
+		//	CAST,
+		//	CATCH,
+		//	CDOUBLE,
+		//	CENT,
+		//	CFLOAT,
+		//	CHAR,
+		//	CLASS,
+		//	CONST,
+		//	CONTINUE,
+		//	CREAL,
+		case 'c': return findKeyword(Keyword.CASE, Keyword.CREAL, ident);
+				
+		//	DCHAR,
+		//	DEBUG,
+		//	DEFAULT,
+		//	DELEGATE,
+		//	DELETE,
+		//	DEPRECATED,
+		//	DO,
+		//	DOUBLE,
+		case 'd': return findKeyword(Keyword.DCHAR, Keyword.DOUBLE, ident);
+				
+		//	ELSE,
+		//	ENUM,
+		//	EXPORT,
+		//	EXTERN,
+		case 'e': return findKeyword(Keyword.ELSE, Keyword.EXTERN, ident);
+				
+		//	FALSE,
+		//	FINAL,
+		//	FINALLY,
+		//	FLOAT,
+		//	FOR,
+		//	FOREACH,
+		//	FOREACH_REVERSE,
+		//	FUNCTION,
+		case 'f': return findKeyword(Keyword.FALSE, Keyword.FUNCTION, ident);
+				
+		//	GOTO,
+		case 'g': return findKeyword(Keyword.GOTO, Keyword.GOTO, ident);
+				
+		//	IDOUBLE,
+		//	IF,
+		//	IFLOAT,
+		//	IMMUTABLE,
+		//	IMPORT,
+		//	IN,
+		//	INOUT,
+		//	INT,
+		//	INTERFACE,
+		//	INVARIANT,
+		//	IREAL,
+		//	IS,
+		case 'i': return findKeyword(Keyword.IDOUBLE, Keyword.IS, ident);
+				
+		//	LAZY,
+		//	LONG,
+		case 'l': return findKeyword(Keyword.LAZY, Keyword.LONG, ident);
+				
+		//	MACRO,
+		//	MIXIN,
+		//	MODULE,
+		case 'm': return findKeyword(Keyword.MACRO, Keyword.MODULE, ident);
+				
+		//	NEW,
+		//	NOTHROW,
+		//	NULL,
+		case 'n': return findKeyword(Keyword.NEW, Keyword.NULL, ident);
+				
+		//	OUT,
+		//	OVERRIDE,
+		case 'o': return findKeyword(Keyword.OUT, Keyword.OVERRIDE, ident);
+				
+		//	PACKAGE,
+		//	PRAGMA,
+		//	PRIVATE,
+		//	PROTECTED,
+		//	PUBLIC,
+		//	PURE,
+		case 'p': return findKeyword(Keyword.PACKAGE, Keyword.PURE, ident);
+				
+		//	REAL,
+		//	REF,
+		//	RETURN,
+		case 'r': return findKeyword(Keyword.REAL, Keyword.RETURN, ident);
+				
+		//	SCOPE,
+		//	SHARED,
+		//	SHORT,
+		//	STATIC,
+		//	STRUCT,
+		//	SUPER,
+		//	SWITCH,
+		//	SYNCHRONIZED,
+		case 's': return findKeyword(Keyword.SCOPE, Keyword.SYNCHRONIZED, ident);
+				
+		//	TEMPLATE,
+		//	THIS,
+		//	THROW,
+		//	TRUE,
+		//	TRY,
+		//	TYPEDEF,
+		//	TYPEID,
+		//	TYPEOF,
+		case 't': return findKeyword(Keyword.TEMPLATE, Keyword.TYPEOF, ident);
+				
+		//	UBYTE,
+		//	UCENT,
+		//	UINT,
+		//	ULONG,
+		//	UNION,
+		//	UNITTEST,
+		//	USHORT,
+		case 'u': return findKeyword(Keyword.UBYTE, Keyword.USHORT, ident);
+				
+		//	VERSION,
+		//	VOID,
+		//	VOLATILE,
+		case 'v': return findKeyword(Keyword.VERSION, Keyword.VOLATILE, ident);
+				
+		//	WCHAR,
+		//	WHILE,
+		//	WITH,
+		case 'w': return findKeyword(Keyword.WCHAR, Keyword.WITH, ident);
+				
+		//	FILE,
+		//	MODULE,
+		//	LINE,
+		//	FUNCTION,
+		//	PRETTY_FUNCTION,
+		//
+		//	GSHARED,
+		//	TRAITS,
+		//	VECTOR,
+		//	PARAMETERS,
+		case '_': return findKeyword(Keyword.FILE, Keyword.PARAMETERS, ident);
+		default: return Keyword.NONE;				
+	}
+}	
 
 /**
  * Token.

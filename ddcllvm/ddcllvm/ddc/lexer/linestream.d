@@ -432,6 +432,10 @@ class TextLines : SourceFile {
         _source = null;
     }
 
+    @property string text() const {
+        return _source;
+    }
+
     @property int lineCount() const {
         return cast(int)_lines.length;
     }
@@ -451,8 +455,8 @@ class TextLines : SourceFile {
         assert(startLine >= 0 && startLine < _lines.length);
         assert(endLine >= 0 && endLine < _lines.length);
         assert(startLine <= endLine);
-        assert(startPos >= 0 && startPos < _lines[startLine].text.length);
-        assert(endPos >= 0 && endPos < _lines[endLine].text.length);
+        assert(startPos >= 0 && startPos <= _lines[startLine].text.length);
+        assert(endPos >= 0 && endPos <= _lines[endLine].text.length);
         int startLineOffset = _lines[startLine].offset;
         int endLineOffset = _lines[endLine].offset;
         int startOffset = startLineOffset + startPos;
@@ -489,7 +493,6 @@ class TextLines : SourceFile {
         _lines = null;
         char[] res;
         _fmt = decodeSourceBytes(data, res);
-        res = null;
         _source = res.dup;
         int cnt = countLines(_source);
         _lines.length = cnt;
@@ -500,7 +503,7 @@ class TextLines : SourceFile {
                 _lines[index].file = this;
                 _lines[index].line = index;
                 _lines[index].text = lineStart < i ? _source[lineStart .. i] : "";
-                _lines[index].offset = i;
+                _lines[index].offset = lineStart;
                 lineStart = i + 1;
                 index++;
             }
