@@ -1380,13 +1380,93 @@ struct Utf8Tokenizer {
         }
     }
     void parseDecFloatSuffix() {
-
+        // current char is u U l L f F
+        bool i_suffix = false;
+        bool l_suffix = false;
+        bool f_suffix = false;
+        char ch = _pos < _lineLen ? _lineText[_pos] : 0;
+        if (ch == 'l' || ch == 'L') {
+            l_suffix = true;
+            _pos++;
+            ch = _pos < _lineLen ? _lineText[_pos] : 0;
+        }
+        if (ch == 'f' || ch == 'F') {
+            f_suffix = true;
+            _pos++;
+            ch = _pos < _lineLen ? _lineText[_pos] : 0;
+        }
+        if (ch == 'i' || ch == 'I') {
+            i_suffix = true;
+            _pos++;
+        }
+        dchar dch = decodeChar();
+        if (isIdentMiddleChar(dch) || (l_suffix && f_suffix)) {
+            _token.id = TokId.error_invalidFloatLiteral;
+            extendErrorWhileAlNum();
+            return;
+        }
+        updateTokenText();
+        if (f_suffix) {
+            if (i_suffix)
+                _token.id = TokId.float_short_im;
+            else
+                _token.id = TokId.float_short;
+        } else if (l_suffix) {
+            if (i_suffix)
+                _token.id = TokId.float_long_im;
+            else
+                _token.id = TokId.float_long;
+        } else {
+            if (i_suffix)
+                _token.id = TokId.float_default_im;
+            else
+                _token.id = TokId.float_default;
+        }
     }
     void parseDecFloatExponent() {
         // current char is e or E
+        _pos++;
+        char ch = _pos < _lineLen ? _lineText[_pos] : 0;
+        if (ch != '+' && ch != '-' && (ch < '0' || ch > '9')) {
+            _token.id = TokId.error_invalidFloatLiteral;
+            extendErrorWhileAlNum();
+            return;
+        }
+        _pos++;
+        int digitCount = (ch >= '0' && ch <= '9') ? 1 : 0;
+        while(_pos < _lineLen) {
+            ch = _lineText[_pos];
+            if (ch >= '0' && ch <= '9')
+                digitCount++;
+            else if (ch != '_')
+                break;
+            _pos++;
+        }
+        if (digitCount == 0) {
+            _token.id = TokId.error_invalidFloatExponent;
+            extendErrorWhileAlNum();
+            return;
+        }
+        parseDecFloatSuffix();
     }
 	void parseDecFloatSecondPart() {
         // current char is .
+        _pos++;
+        char ch;
+        int digitCount = 0;
+        while(_pos < _lineLen) {
+            ch = _lineText[_pos];
+            if (ch >= '0' && ch <= '9')
+                digitCount++;
+            else if (ch != '_')
+                break;
+            _pos++;
+        }
+        if (ch == 'e' || ch == 'E') {
+            parseDecFloatExponent();
+            return;
+        }
+        parseDecFloatSuffix();
     }
 
     /// parse next token
