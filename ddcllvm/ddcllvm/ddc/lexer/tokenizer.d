@@ -69,16 +69,18 @@ enum TokType : uint {
 }
 
 enum CharType : uint {
-    unknown,
-    char8,
-    char16,
-    char32
+    unknown = 0,
+    char8 = 'c',
+    char16 = 'w',
+    char32 = 'd'
 }
 
 enum TokError : uint {
     none,
     InvalidToken,
-    UnexpectedEofInComment
+    UnexpectedEofInComment,
+    InvalidEscapeSequence,
+    InvalidStringSuffix,
 }
 
 enum TokId : uint {
@@ -97,6 +99,8 @@ enum TokId : uint {
     error = TokType.error,
     error_invalidToken = TokType.error | TokError.InvalidToken,
     error_unexpectedEofInComment = TokType.error | TokError.UnexpectedEofInComment,
+    error_invalidEscapeSequence = TokType.error | TokError.InvalidEscapeSequence,
+    error_invalidStringSuffix = TokType.error | TokError.InvalidStringSuffix,
 
     str_unknown = TokType.str,
     str_8 = TokType.str | CharType.char8,
@@ -363,6 +367,7 @@ struct Tok {
             case TokType.op:
             case TokType.comment:
             case TokType.keyword:
+            case TokType.str:
                 return id;
             default:
                 return type();
@@ -375,11 +380,21 @@ struct Tok {
             case TokType.op:
             case TokType.comment:
             case TokType.keyword:
+            case TokType.str:
                 return postext ~ to!string(cast(TokId)id) ~ " " ~ str;
             default:
                 return postext ~ to!string(type()) ~ " " ~ str;
         }
     }
+}
+
+enum StringTokenMode {
+    /// include quotes and character types, no scape sequence processing - e.g. r"bla\nbla"w
+    raw,
+    /// exclude quotes and character types, no scape sequence processing - e.g. bla\nbla
+    rawnoquotes,
+    /// exclude quotes and character types, perform escape sequence processing - e.g. bla<newline>bla
+    processed
 }
 
 struct Utf8Tokenizer {
@@ -391,6 +406,13 @@ struct Utf8Tokenizer {
     private int _lineLen;
     private int _pos;
     private Tok _token;
+    private StringTokenMode _stringTokenMode = StringTokenMode.processed;
+
+    /// string literal content processing mode
+    @property StringTokenMode stringTokenMode() { return _stringTokenMode; }
+    /// string literal content processing mode
+    @property void stringTokenMode(StringTokenMode mode) { _stringTokenMode = mode; }
+
 
     void init(StringCache * identCache, TextLines source) {
         _identCache = identCache;
@@ -535,7 +557,299 @@ struct Utf8Tokenizer {
         return ((ch0 & 0x07) << 18) | ((ch1 & 0x3F) << 12) | ((ch2 & 0x3F) << 6) | ((ch3 & 0x3F));
     }
 
-
+	protected OpCode detectOp() nothrow {
+		char ch = _lineText[_pos];
+		if (ch >= 128)
+			return OpCode.NONE;
+		char ch2 = _pos + 1 < _lineLen ? _lineText[_pos + 1] : 0;
+		char ch3 = _pos + 2 < _lineLen ? _lineText[_pos + 2] : 0;
+		switch(cast(ubyte)ch) {
+			//	DIV, 		//    /
+			//	DIV_EQ, 	//    /=
+			case '/':
+				if (ch2 == '=') {
+					_pos += 2;
+					return OpCode.DIV_EQ;
+				}
+				return OpCode.DIV;
+			//	DOT, 		//    .
+			//	DOT_DOT, 	//    ..
+			//	DOT_DOT_DOT,//    ...
+			case '.':
+				if (ch2 == '.') {
+					if (ch3 == '.') {
+						_pos += 3;
+						return OpCode.DOT_DOT_DOT;
+					}
+			        _pos += 2;
+					return OpCode.DOT_DOT;
+				}
+    			_pos += 1;
+				return OpCode.DOT;
+			//	AND, 		//    &
+			//	AND_EQ, 	//    &=
+			//	LOG_AND, 	//    &&
+			case '&':
+				if (ch2 == '=') {
+    				_pos += 2;
+					return OpCode.AND_EQ;
+				}
+				if (ch2 == '&') {
+    				_pos += 2;
+					return OpCode.LOG_AND;
+				}
+  				_pos += 1;
+				return OpCode.AND;
+			//	OR, 		//    |
+			//	OR_EQ, 		//    |=
+			//	LOG_OR, 	//    ||
+			case '|':
+				if (ch2 == '=') {
+    				_pos += 2;
+					return OpCode.OR_EQ;
+				}
+				if (ch2 == '|') {
+    				_pos += 2;
+					return OpCode.LOG_OR;
+				}
+  				_pos += 1;
+				return OpCode.OR;
+			//	MINUS, 		//    -
+			//	MINUS_EQ, 	//    -=
+			//	MINUS_MINUS,//    --
+			case '-':
+				if (ch2 == '=') {
+    				_pos += 2;
+					return OpCode.MINUS_EQ;
+				}
+				if (ch2 == '-') {
+    				_pos += 2;
+					return OpCode.MINUS_MINUS;
+				}
+				return OpCode.MINUS;
+			//	PLUS, 		//    +
+			//	PLUS_EQ, 	//    +=
+			//	PLUS_PLUS, 	//    ++
+			case '+':
+				if (ch2 == '=') {
+    				_pos += 2;
+					return OpCode.PLUS_EQ;
+				}
+				if (ch2 == '+') {
+    				_pos += 2;
+					return OpCode.PLUS_PLUS;
+				}
+  				_pos += 1;
+				return OpCode.PLUS;
+			//	LT, 		//    <
+			//	LT_EQ, 		//    <=
+			//	SHL, 		//    <<
+			//	SHL_EQ, 	//    <<=
+			//	LT_GT, 		//    <>
+			//	NE_EQ, 		//    <>=
+			case '<':
+				if (ch2 == '<') {
+					if (ch3 == '=') {
+        				_pos += 3;
+						return OpCode.SHL_EQ;
+					}
+    				_pos += 2;
+					return OpCode.SHL;
+				}
+				if (ch2 == '>') {
+					if (ch3 == '=') {
+        				_pos += 3;
+						return OpCode.NE_EQ;
+					}
+    				_pos += 2;
+					return OpCode.LT_GT;
+				}
+				if (ch2 == '=') {
+    				_pos += 2;
+					return OpCode.LT_EQ;
+				}
+   				_pos += 1;
+				return OpCode.LT;
+			//	GT, 		//    >
+			//	GT_EQ, 		//    >=
+			//	SHR_EQ		//    >>=
+			//	ASR_EQ, 	//    >>>=
+			//	SHR, 		//    >>
+			//	ASR, 		//    >>>
+			case '>':
+				if (ch2 == '>') {
+					if (ch3 == '>') {
+						dchar ch4 = _pos + 3 < _lineLen ? _lineText[_pos + 3] : 0;
+						if (ch4 == '=') { // >>>=
+            				_pos += 4;
+							return OpCode.ASR_EQ;
+						}
+        				_pos += 3;
+						return OpCode.ASR; // >>>
+					}
+					if (ch3 == '=') { // >>=
+        				_pos += 3;
+						return OpCode.SHR_EQ;
+					}
+    				_pos += 2;
+					return OpCode.SHR;
+				}
+				if (ch2 == '=') { // >=
+    				_pos += 2;
+					return OpCode.GT_EQ;
+				}
+				// >
+   				_pos += 1;
+				return OpCode.GT;
+			//	NOT, 		//    !
+			//	NOT_EQ		//    !=
+			//	NOT_LT_GT, 	//    !<>
+			//	NOT_LT_GT_EQ, //    !<>=
+			//	NOT_LT, 	//    !<
+			//	NOT_LT_EQ, 	//    !<=
+			//	NOT_GT, 	//    !>
+			//	NOT_GT_EQ, 	//    !>=
+			case '!':
+				if (ch2 == '<') { // !<
+					if (ch3 == '>') { // !<>
+						dchar ch4 = _pos + 3 < _lineLen ? _lineText[_pos + 3] : 0;
+						if (ch4 == '=') { // !<>=
+            				_pos += 4;
+							return OpCode.NOT_LT_GT_EQ;
+						}
+        				_pos += 3;
+						return OpCode.NOT_LT_GT; // !<>
+					}
+					if (ch3 == '=') { // !<=
+        				_pos += 3;
+						return OpCode.NOT_LT_EQ;
+					}
+    				_pos += 2;
+					return OpCode.NOT_LT; // !<
+				}
+				if (ch2 == '=') { // !=
+    				_pos += 2;
+					return OpCode.NOT_EQ;
+				}
+   				_pos += 1;
+				return OpCode.NOT;
+			//	PAR_OPEN, 	//    (
+			case '(':
+   				_pos += 1;
+				return OpCode.PAR_OPEN;
+			//	PAR_CLOSE, 	//    )
+			case ')':
+   				_pos += 1;
+				return OpCode.PAR_CLOSE;
+			//	SQ_OPEN, 	//    [
+			case '[':
+   				_pos += 1;
+				return OpCode.SQ_OPEN;
+			//	SQ_CLOSE, 	//    ]
+			case ']':
+   				_pos += 1;
+				return OpCode.SQ_CLOSE;
+			//	CURL_OPEN, 	//    {
+			case '{':
+   				_pos += 1;
+				return OpCode.CURL_OPEN;
+			//	CURL_CLOSE, //    }
+			case '}':
+   				_pos += 1;
+				return OpCode.CURL_CLOSE;
+			//	QUEST, 		//    ?
+			case '?':
+   				_pos += 1;
+				return OpCode.QUEST;
+			//	COMMA, 		//    ,
+			case ',':
+   				_pos += 1;
+				return OpCode.COMMA;
+			//	SEMICOLON, 	//    ;
+			case ';':
+   				_pos += 1;
+				return OpCode.SEMICOLON;
+			//	COLON, 	    //    :
+			case ':':
+   				_pos += 1;
+				return OpCode.COLON;
+			//	DOLLAR, 	//    $
+			case '$':
+   				_pos += 1;
+				return OpCode.DOLLAR;
+			//	EQ, 		//    =
+			//	QE_EQ, 		//    ==
+			//	EQ_GT, 		//    =>
+			case '=':
+				if (ch2 == '=') { // ==
+       				_pos += 2;
+					return OpCode.QE_EQ;
+				}
+				if (ch2 == '>') { // =>
+       				_pos += 2;
+					return OpCode.EQ_GT;
+				}
+   				_pos += 1;
+				return OpCode.EQ;
+			//	MUL, 		//    *
+			//	MUL_EQ, 	//    *=
+			case '*':
+				if (ch2 == '=') {
+       				_pos += 2;
+					return OpCode.MUL_EQ;
+				}
+   				_pos += 1;
+				return OpCode.MUL;
+			//	MOD, 	//    %
+			//	MOD_EQ, //    %=
+			case '%':
+				if (ch2 == '=') {
+       				_pos += 2;
+					return OpCode.MOD_EQ;
+				}
+   				_pos += 1;
+				return OpCode.MOD;
+			//	XOR, 		//    ^
+			//	XOR_EQ, 	//    ^=
+			//	LOG_XOR, 	//    ^^
+			//	LOG_XOR_EQ, //    ^^=
+			case '^':
+				if (ch2 == '^') {
+					if (ch3 == '=') {
+						_pos += 3;
+						return OpCode.LOG_XOR_EQ;
+					}
+       				_pos += 2;
+					return OpCode.LOG_XOR;
+				}
+				if (ch2 == '=') {
+       				_pos += 2;
+					return OpCode.XOR_EQ;
+				}
+   				_pos += 1;
+				return OpCode.XOR;
+			//	INV, 		//    ~
+			//	INV_EQ, 	//    ~=
+			case '~':
+				if (ch2 == '=') {
+       				_pos += 2;
+					return OpCode.INV_EQ;
+				}
+   				_pos += 1;
+				return OpCode.INV;
+			//	AT, 		//    @
+			case '@':
+   				_pos += 1;
+				return OpCode.AT;
+			//	SHARP 		//    #
+			case '#':
+   				_pos += 1;
+				return OpCode.SHARP;
+			default:
+				return OpCode.NONE;
+		}
+	}
+	
     void parseIdentOrKeyword() {
         // first character is already skipped
         int nextPos;
@@ -557,6 +871,270 @@ struct Utf8Tokenizer {
         }
     }
 
+    /// remove quotes and char type from string literal, e.g.   r"bla bla"w --> bla bla
+    private static string removeQuotes(string s) {
+        int skipStart = 0;
+        int skipEnd = 0;
+        char firstchar = s[0];
+        char lastchar = s[$ - 1];
+        if (lastchar == 'c' || lastchar == 'd' || lastchar == 'w') {
+            skipEnd++;
+            lastchar = s[$ - 1 - skipEnd];
+        }
+        if (firstchar == 'r') {
+            skipStart++;
+            firstchar = s[skipStart];
+        }
+        if ((firstchar == '\"' && lastchar == '\"') || (firstchar == '`' && lastchar == '`')) {
+            skipStart++;
+            skipEnd++;
+        }
+        return s[skipStart .. $ - skipEnd];
+    }
+
+    static int parseHexDigit(dchar ch) {
+        if (ch >= '0' && ch <='9')
+            return ch - '0';
+        if (ch >= 'a' && ch <='f')
+            return ch - 'a' + 10;
+        if (ch >= 'A' && ch <='F')
+            return ch - 'A' + 10;
+        return -1;
+    }
+    static dchar decodeHex(string s, ref int pos, int count, ref bool errorFlag) {
+        dchar res = 0;
+        for (int i = 0; i < count; i++) {
+            if (pos + 1 >= s.length) {
+                errorFlag = true;
+                return res;
+            }
+            dchar ch = s[++pos];
+            int digit = parseHexDigit(ch);
+            if (digit < 0) {
+                errorFlag = true;
+                digit = 0;
+            }
+            res = (res << 4) | digit;
+        }
+        if (res >= 0x100000) // too big for unicode character
+            errorFlag = true;
+        return res;
+    }
+
+    static dchar decodeOct(string s, dchar firstChar, ref int pos, ref bool errorFlag) {
+        dchar res = 0;
+        res = firstChar - '0';
+        if (pos + 1 < s.length && s[pos + 1] >= '0' && s[pos + 1] <= '7') {
+            res = (res << 3) | (s[++pos] - '0');
+        }
+        if (pos + 1 < s.length && s[pos + 1] >= '0' && s[pos + 1] <= '7') {
+            res = (res << 3) | (s[++pos] - '0');
+        }
+        return res;
+    }
+
+    char[] entityNameBuf;
+    int entityNameLen;
+
+    static dchar decodeCharacterEntity(string s, ref int pos, ref bool errorFlag) {
+        pos++;
+        int start = pos;
+        for(; pos < s.length && s[pos] != ';'; pos++) {
+            char ch = s[pos];
+            if (ch >= 0x80)
+                errorFlag = true;
+        }
+        if (pos < s.length && s[pos] == ';') {
+            dchar ch = entityToChar(s[start .. pos]);
+            if (ch)
+                return ch;
+        }
+        errorFlag = true;
+        return '?';
+    }
+
+    static bool processEscapeSequences(ref string s) {
+        bool backslashFound = false;
+        foreach(ch; s)
+            if (ch == '\\') {
+                backslashFound = true;
+                break;
+            }
+        if (!backslashFound)
+            return true;
+        bool errorFlag = false;
+        int len = cast(int)s.length;
+        char[] buf;
+        buf.reserve(s.length);
+        int dst = 0;
+        for (int src = 0; src < len; src++) {
+            dchar ch = s[src];
+            if (ch == '\\') {
+                if (src == len - 1)
+                    break; // INVALID
+                ch = s[++src];
+                switch (ch) {
+                    case '\'':
+                    case '\"':
+                    case '?':
+                    case '\\':
+                        // leave ch as is
+                        break;
+                    case '0':
+                        ch = '\0';
+                        break;
+                    case 'a':
+                        ch = '\a';
+                        break;
+                    case 'b':
+                        ch = '\b';
+                        break;
+                    case 'f':
+                        ch = '\f';
+                        break;
+                    case 'n':
+                        ch = '\n';
+                        break;
+                    case 'r':
+                        ch = '\r';
+                        break;
+                    case 't':
+                        ch = '\t';
+                        break;
+                    case 'v':
+                        ch = '\v';
+                        break;
+                    case 'x':
+                        ch = decodeHex(s, src, 2, errorFlag);
+                        break;
+                    case 'u':
+                        ch = decodeHex(s, src, 4, errorFlag);
+                        break;
+                    case 'U':
+                        ch = decodeHex(s, src, 8, errorFlag);
+                        break;
+                    default:
+                        if (ch >= '0' && ch <= '7') {
+                            // octal X XX or XXX
+                            ch = decodeOct(s, ch, src, errorFlag); // something wrong
+                        } else if (ch == '&') {
+                            // named character entity
+                            ch = decodeCharacterEntity(s, src, errorFlag);
+                            // just show it as is
+                        } else {
+                            errorFlag = true;
+                        }
+                        break;
+                }
+            }
+            // encode ch to utf8 and put into buffer
+            if (ch < 0x80) {
+                buf ~= cast(char)ch;
+            } else {
+                // encode utf8
+                char[4] enc;
+                auto sz = encode(enc, ch);
+                for(int i = 0; i < sz; i++)
+                    buf ~= enc[i];
+            }
+        }
+        if (errorFlag) {
+            return false;
+        }
+        // no error: copy result string
+        s = buf.dup;
+        return !errorFlag;
+    }
+
+    void parseStringLiteral() {
+        char delimiter = _lineText[_pos];
+		bool wysiwyg = (delimiter == 'r' || delimiter == '`');
+		_pos++;
+		if (delimiter == 'r') {
+			_pos++;
+			delimiter = '\"';
+		}
+		dchar type = 0;
+		for (;;) {
+			int i = _pos;
+			int endPos = int.max;
+            bool lastBackSlash = false;
+			for (; i < _lineLen; i++) {
+                char ch = _lineText[i];
+                if (ch == '\\') {
+                    if (lastBackSlash)
+                        lastBackSlash = false;
+                    else
+                        lastBackSlash = true;
+                } else if (ch == delimiter && !lastBackSlash) {
+					endPos = i;
+					break;
+				}
+                else if (lastBackSlash)
+                    lastBackSlash = false;
+			}
+			if (endPos != int.max) {
+				// found end quote
+				_pos = endPos + 1;
+				break;
+			}
+			// no quote by end of line
+			if (!nextLine()) {
+				// do we need to throw exception if eof comes before end of string?
+				break;
+			}
+		}
+		char t = 0;
+		if (_pos < _lineLen) {
+			char ch = _lineText[_pos];
+			if (ch == 'c' || ch == 'w' || ch == 'd') {
+				t = ch;
+                _pos++;
+                if (_pos < _lineLen) {
+                    int nextPos;
+                    dchar dch = decodeChar(nextPos);
+                    if (isIdentMiddleChar(dch)) {
+                        updateTokenText();
+                        _token.id = TokId.error_invalidStringSuffix;
+                        return;
+                    }
+                }
+            } else {
+                int nextPos;
+                dchar dch = decodeChar(nextPos);
+                if (isIdentMiddleChar(dch)) {
+                    updateTokenText();
+                    _token.id = TokId.error_invalidStringSuffix;
+                    return;
+                }
+            }
+		}
+		if (t != 0) {
+			if (type != 0 && t != type) {
+				//return parserError("Cannot concatenate strings of different type", _sharedStringLiteralToken);
+                return;
+            }
+			type = t;
+		}
+        updateTokenText();
+        _token.setType(TokType.str, type);
+        if (_stringTokenMode == StringTokenMode.raw) {
+            return;
+        }
+
+        _token.str = removeQuotes(_token.str);
+
+		if (wysiwyg || _stringTokenMode == StringTokenMode.rawnoquotes) {
+			// no escape processing
+			return;
+		}
+        if (!processEscapeSequences(_token.str)) {
+            // error in escape sequence
+            _token.id = TokId.error_invalidEscapeSequence;
+        }
+    }
+
+    /// parse next token
     Tok nextToken() {
         startToken();
         if (_pos >= _lineLen) {
@@ -581,6 +1159,24 @@ struct Utf8Tokenizer {
         }
         if (ch == '/' && ch2 == '+') {
             parseNestedComment();
+            return _token;
+        }
+        if (ch == '\"') {
+            parseStringLiteral();
+            return _token;
+        }
+        if (ch == '`') {
+            parseStringLiteral();
+            return _token;
+        }
+        if (ch == 'r' && ch2 == '\"') {
+            parseStringLiteral();
+            return _token;
+        }
+        OpCode op = detectOp();
+        if (op != OpCode.NONE) {
+            _token.setType(TokType.op, op);
+            updateTokenText();
             return _token;
         }
         int nextPos;

@@ -21,13 +21,17 @@ int main(string[] args)
         **********/
         /+  /* bla bla */  /+ some nested comment +/ hjk
         ++++++++++++++++++/
-        for someIdent
+        for (someIdent123=) >>>= 
+            "Some\x35\u0036\U00000037\&quot;. \n text" `Bla \n bla`d r"bla bla"w "some\t\ttext тест"c
     }, [
         TokId.comment_single, TokId.whitespace, 
         TokId.comment_multi, TokId.whitespace, 
         TokId.comment_nested, TokId.whitespace, 
-        TokId.kw_for, TokId.whitespace, 
-        TokId.ident, TokId.whitespace, 
+        TokId.kw_for, TokId.whitespace, TokId.op_par_open, TokId.ident, TokId.op_eq, TokId.op_par_close, TokId.whitespace, TokId.op_asr_eq, TokId.whitespace, 
+        TokId.str_unknown, TokId.whitespace, 
+        TokId.str_32, TokId.whitespace, 
+        TokId.str_16, TokId.whitespace, 
+        TokId.str_8, TokId.whitespace, 
         TokId.eof]);
 
     version(Windows) {
