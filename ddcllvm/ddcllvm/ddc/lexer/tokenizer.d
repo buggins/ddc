@@ -75,12 +75,34 @@ enum CharType : uint {
     char32 = 'd'
 }
 
+enum IntType : uint {
+    int_default,
+    int_unsigned,
+    int_long,
+    int_unsigned_long
+}
+
+enum FloatType : uint {
+    float_default,
+    float_short,
+    float_long,
+    float_default_im,
+    float_short_im,
+    float_long_im,
+}
+
 enum TokError : uint {
     none,
     InvalidToken,
     UnexpectedEofInComment,
     InvalidEscapeSequence,
     InvalidStringSuffix,
+    InvalidCharacterLiteral,
+    InvalidIntegerLiteral,
+    InvalidHexLiteral,
+    InvalidFloatLiteral,
+    InvalidOctLiteral,
+    InvalidFloatExponent,
 }
 
 enum TokId : uint {
@@ -101,11 +123,34 @@ enum TokId : uint {
     error_unexpectedEofInComment = TokType.error | TokError.UnexpectedEofInComment,
     error_invalidEscapeSequence = TokType.error | TokError.InvalidEscapeSequence,
     error_invalidStringSuffix = TokType.error | TokError.InvalidStringSuffix,
+    error_invalidCharacterLiteral = TokType.error | TokError.InvalidCharacterLiteral,
+    error_invalidIntegerLiteral = TokType.error | TokError.InvalidIntegerLiteral,
+    error_invalidHexLiteral = TokType.error | TokError.InvalidHexLiteral,
+    error_invalidFloatLiteral = TokType.error | TokError.InvalidFloatLiteral,
+    error_invalidOctLiteral = TokType.error | TokError.InvalidOctLiteral,
+    error_invalidFloatExponent = TokType.error | TokError.InvalidFloatExponent,
 
     str_unknown = TokType.str,
     str_8 = TokType.str | CharType.char8,
     str_16 = TokType.str | CharType.char16,
     str_32 = TokType.str | CharType.char32,
+
+    char_unknown = TokType.character,
+    char_8 = TokType.character | CharType.char8,
+    char_16 = TokType.character | CharType.char16,
+    char_32 = TokType.character | CharType.char32,
+
+    int_default = TokType.integer | IntType.int_default,
+    int_unsigned = TokType.integer | IntType.int_unsigned,
+    int_long = TokType.integer | IntType.int_long,
+    int_unsigned_long = TokType.integer | IntType.int_unsigned_long,
+
+    float_default = TokType.floating | FloatType.float_default,
+    float_short = TokType.floating | FloatType.float_short,
+    float_long = TokType.floating | FloatType.float_long,
+    float_default_im = TokType.floating | FloatType.float_default_im,
+    float_short_im = TokType.floating | FloatType.float_short_im,
+    float_long_im = TokType.floating | FloatType.float_long_im,
 
     kw_abstract = TokType.keyword | Keyword.ABSTRACT,
 	kw_alias = TokType.keyword | Keyword.ALIAS,
@@ -367,7 +412,10 @@ struct Tok {
             case TokType.op:
             case TokType.comment:
             case TokType.keyword:
+            case TokType.integer:
+            case TokType.floating:
             case TokType.str:
+            case TokType.character:
                 return id;
             default:
                 return type();
@@ -380,7 +428,10 @@ struct Tok {
             case TokType.op:
             case TokType.comment:
             case TokType.keyword:
+            case TokType.integer:
+            case TokType.floating:
             case TokType.str:
+            case TokType.character:
                 return postext ~ to!string(cast(TokId)id) ~ " " ~ str;
             default:
                 return postext ~ to!string(type()) ~ " " ~ str;
@@ -533,6 +584,14 @@ struct Utf8Tokenizer {
         _pos++;
         _token.id = TokId.error_invalidToken;
         updateTokenText();
+    }
+
+    /// decode UTF8 to UTF32 character from current position, provide next position in line
+    dchar decodeChar() {
+        if (_pos >= _lineLen)
+            return 0;
+        int nextPos; // unused
+        return decodeChar(nextPos);
     }
 
     /// decode UTF8 to UTF32 character from current position, provide next position in line
@@ -885,7 +944,7 @@ struct Utf8Tokenizer {
             skipStart++;
             firstchar = s[skipStart];
         }
-        if ((firstchar == '\"' && lastchar == '\"') || (firstchar == '`' && lastchar == '`')) {
+        if ((firstchar == '\"' && lastchar == '\"') || (firstchar == '`' && lastchar == '`') || (firstchar == '\'' && lastchar == '\'')) {
             skipStart++;
             skipEnd++;
         }
@@ -1091,8 +1150,7 @@ struct Utf8Tokenizer {
 				t = ch;
                 _pos++;
                 if (_pos < _lineLen) {
-                    int nextPos;
-                    dchar dch = decodeChar(nextPos);
+                    dchar dch = decodeChar();
                     if (isIdentMiddleChar(dch)) {
                         updateTokenText();
                         _token.id = TokId.error_invalidStringSuffix;
@@ -1100,8 +1158,7 @@ struct Utf8Tokenizer {
                     }
                 }
             } else {
-                int nextPos;
-                dchar dch = decodeChar(nextPos);
+                dchar dch = decodeChar();
                 if (isIdentMiddleChar(dch)) {
                     updateTokenText();
                     _token.id = TokId.error_invalidStringSuffix;
@@ -1132,6 +1189,204 @@ struct Utf8Tokenizer {
             // error in escape sequence
             _token.id = TokId.error_invalidEscapeSequence;
         }
+    }
+
+    void parseCharacterLiteral() {
+        parseStringLiteral();
+        if (_token.type == TokType.str) {
+            switch(_token.id) {
+                case TokId.str_8:
+                    _token.id = TokId.char_8;
+                    break;
+                case TokId.str_16:
+                    _token.id = TokId.char_16;
+                    break;
+                case TokId.str_32:
+                    _token.id = TokId.char_32;
+                    break;
+                case TokId.str_unknown:
+                default:
+                    _token.id = TokId.char_unknown;
+                    break;
+            }
+            string str = _token.str;
+            if (_stringTokenMode == StringTokenMode.raw) {
+                str = removeQuotes(str);
+            }
+            if (str.length != 1) {
+                if (_stringTokenMode == StringTokenMode.rawnoquotes) {
+                    if (!processEscapeSequences(_token.str)) {
+                        _token.id = TokId.error_invalidEscapeSequence;
+                        return;
+                    }
+                }
+                if (str.length != 1) {
+                    dstring dstr = toUTF32(str);
+                    if (dstr.length != 1) {
+                        // not a signle character
+                        _token.id = TokId.error_invalidCharacterLiteral;
+                    }
+                }
+            }
+        }
+    }
+
+	void parseBinaryNumber() {
+        // 0b
+        _pos += 2;
+        char ch;
+        int digitCount = 0;
+        while(_pos < _lineLen) {
+            ch = _lineText[_pos];
+            if (ch >= '0' && ch <= '1')
+                digitCount++;
+            else if (ch != '_')
+                break;
+            _pos++;
+        }
+        if (digitCount == 0) {
+            _token.id = TokId.error_invalidIntegerLiteral;
+            extendErrorWhileAlNum();
+            return;
+        }
+        parseIntegerSuffix();
+    }
+
+	void parseHexNumber() {
+        _pos += 2;
+        char ch;
+        int digitCount = 0;
+        while(_pos < _lineLen) {
+            ch = _lineText[_pos];
+            int digit = parseHexDigit(ch);
+            if (digit >= 0)
+                digitCount++;
+            else if (ch != '_')
+                break;
+            _pos++;
+        }
+        if (digitCount == 0) {
+            _token.id = TokId.error_invalidIntegerLiteral;
+            extendErrorWhileAlNum();
+            return;
+        }
+        parseIntegerSuffix();
+    }
+	void parseOctNumber() {
+        // 0[0..7]
+        char ch;
+        int digitCount = 0;
+        while(_pos < _lineLen) {
+            ch = _lineText[_pos];
+            if (ch >= '0' && ch <= '7')
+                digitCount++;
+            else if (ch != '_')
+                break;
+            _pos++;
+        }
+        if (digitCount == 0) {
+            _token.id = TokId.error_invalidIntegerLiteral;
+            extendErrorWhileAlNum();
+            return;
+        }
+        parseIntegerSuffix();
+    }
+	void parseDecNumber() {
+        // [0..9]
+        char ch;
+        int digitCount = 0;
+        while(_pos < _lineLen) {
+            ch = _lineText[_pos];
+            if (ch >= '0' && ch <= '9')
+                digitCount++;
+            else if (ch != '_')
+                break;
+            _pos++;
+        }
+        if (digitCount == 0) {
+            _token.id = TokId.error_invalidIntegerLiteral;
+            extendErrorWhileAlNum();
+            return;
+        }
+        ch = (_pos < _lineLen) ? _lineText[_pos] : 0;
+        char ch2 = (_pos + 1 < _lineLen) ? _lineText[_pos + 1] : 0;
+        if (ch == 'e' || ch == 'E') {
+            parseDecFloatExponent();
+            return;
+        }
+        if (ch == '.') {
+            parseDecFloatSecondPart();
+            return;
+        }
+        if (ch == 'l' || ch == 'L' || ch == 'u' || ch == 'U') {
+            parseIntegerSuffix();
+            return;
+        }
+        if (ch == 'f' || ch == 'L' || ch == 'i') {
+            parseDecFloatSuffix();
+            return;
+        }
+        updateTokenText();
+        dchar dch = decodeChar();
+        if (isIdentMiddleChar(dch)) {
+            _token.id = TokId.error_invalidIntegerLiteral;
+            extendErrorWhileAlNum();
+            return;
+        }
+        // TODO: validate
+        _token.id = TokId.int_default;
+    }
+    void extendErrorWhileAlNum() {
+        while (_pos < _lineLen) {
+            int nextPos;
+            dchar dch = decodeChar(nextPos);
+            if (!isIdentMiddleChar(dch))
+                break;
+            _pos = nextPos;
+        }
+        updateTokenText();
+    }
+    void parseIntegerSuffix() {
+        // current char is u U l L
+        bool u_suffix = false;
+        bool l_suffix = false;
+        char ch = _pos < _lineLen ? _lineText[_pos] : 0;
+        if (ch == 'u' || ch == 'U') {
+            u_suffix = true;
+            _pos++;
+            ch = _pos < _lineLen ? _lineText[_pos] : 0;
+        }
+        if (ch == 'l' || ch == 'L') {
+            l_suffix = true;
+            _pos++;
+        }
+        dchar dch = decodeChar();
+        if (isIdentMiddleChar(dch)) {
+            _token.id = TokId.error_invalidIntegerLiteral;
+            extendErrorWhileAlNum();
+            return;
+        }
+        updateTokenText();
+        if (u_suffix) {
+            if (l_suffix)
+                _token.id = TokId.int_unsigned_long;
+            else
+                _token.id = TokId.int_unsigned;
+        } else {
+            if (l_suffix)
+                _token.id = TokId.int_long;
+            else
+                _token.id = TokId.int_default;
+        }
+    }
+    void parseDecFloatSuffix() {
+
+    }
+    void parseDecFloatExponent() {
+        // current char is e or E
+    }
+	void parseDecFloatSecondPart() {
+        // current char is .
     }
 
     /// parse next token
@@ -1169,10 +1424,42 @@ struct Utf8Tokenizer {
             parseStringLiteral();
             return _token;
         }
+        if (ch == '\'') {
+            parseCharacterLiteral();
+            return _token;
+        }
         if (ch == 'r' && ch2 == '\"') {
             parseStringLiteral();
             return _token;
         }
+        
+		if (ch == '0') {
+			if (ch2 == 'b' || ch2 == 'B') {
+				parseBinaryNumber();
+                return _token;
+            }
+			if (ch2 == 'x' || ch2 == 'X') {
+				parseHexNumber();
+                return _token;
+            }
+			if (ch2 >= '0' && ch2 <= '7') {
+				parseOctNumber();
+                return _token;
+            }
+			if (ch2 >= '0' && ch2 <= '9') {
+				parseDecNumber();
+                return _token;
+            }
+		}
+		if (ch >= '0' && ch <= '9') {
+			parseDecNumber();
+            return _token;
+        }
+		if (ch == '.' && ch2 >= '0' && ch2 <= '9') { // .123
+			parseDecFloatSecondPart();
+            return _token;
+        }
+
         OpCode op = detectOp();
         if (op != OpCode.NONE) {
             _token.setType(TokType.op, op);
