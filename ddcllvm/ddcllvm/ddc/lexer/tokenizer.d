@@ -13,21 +13,6 @@ import std.math;
 import std.string : startsWith;
 import std.algorithm : equal;
 
-enum TokenType : ubyte {
-	EOF,
-	//EOL,
-	WHITESPACE,
-	COMMENT,
-	IDENTIFIER,
-	STRING,
-	CHARACTER,
-	INTEGER,
-	FLOAT,
-	KEYWORD,
-	OP,
-    INVALID
-}
-
 /// character can present at the beginning of identifier
 bool isIdentStartChar(dchar ch) pure nothrow {
 	return isUniversalAlpha(ch);
@@ -489,12 +474,20 @@ struct Utf8Tokenizer {
     private int _lineLen;
     private int _pos;
     private Tok _token;
+
     private StringTokenMode _stringTokenMode = StringTokenMode.processed;
+    private bool _wantsWhiteSpaces;
 
     /// string literal content processing mode
     @property StringTokenMode stringTokenMode() { return _stringTokenMode; }
     /// string literal content processing mode
     @property void stringTokenMode(StringTokenMode mode) { _stringTokenMode = mode; }
+
+    /// do we need to return whitespaces
+    @property bool wantsWhiteSpaces() { return _wantsWhiteSpaces; }
+    /// do we need to return whitespaces
+    @property void wantsWhiteSpaces(bool mode) { _wantsWhiteSpaces = mode; }
+
 
 
     void init(StrCache * identCache, TextLines source) {
@@ -503,15 +496,31 @@ struct Utf8Tokenizer {
         _lineIndex = -1;
         nextLine();
     }
+
+    Tok[] getTokensForParser() {
+        Tok[] res;
+        int dst = 0;
+        for(;;) {
+            if (dst >= res.length) {
+                res.length = res.length == 0 ? 8192 : res.length * 2;
+            }
+            res[dst++] = nextToken();
+            if (_token.id == TokId.eof)
+                return res[0..dst];
+            if (_token.type == TokType.error) {
+                writeln("error ", _token);
+            }
+        }
+    }
     
-    void startToken() {
+    private void startToken() {
         _token.id = TokId.eof;
         _token.line = _line;
         _token.pos = _pos;
         _token.str = null;
     }
 
-    void updateTokenText() {
+    private void updateTokenText() {
         _token.str = _source.rangeText(_token.line.line, _token.pos, _lineIndex, _pos);
     }
 
@@ -1826,35 +1835,38 @@ struct Utf8Tokenizer {
 
     /// parse next token (including token string and string literal concatenation support)
     Tok nextToken() {
-        // just pass token as is
-        nextTokenRaw();
-        while (_tokenStringStack.length > 0) {
-            // possible token string end
-            Tok startToken = _tokenStringStack[0];
+        for(;;) {
             nextTokenRaw();
-            if (_tokenStringStack.length == 0 || _token.id == TokId.eof) {
-                // closed string token
-                int type = TokId.str_unknown;
-                if (_token.id == TokId.op_token_string_end_8)
-                    type = TokId.str_8;
-                else if (_token.id == TokId.op_token_string_end_16)
-                    type = TokId.str_16;
-                else if (_token.id == TokId.op_token_string_end_32)
-                    type = TokId.str_32;
-                if (_stringTokenMode == StringTokenMode.raw) {
-                    // including q{ and }
-                    _token.str = _source.rangeText(startToken.line.line, startToken.pos, _token.line.line, _token.pos + cast(int)_token.str.length);
-                    _token.line = startToken.line;
-                    _token.pos = startToken.pos;
-                } else {
-                    // w/o q{ and }
-                    _token.str = _source.rangeText(startToken.line.line, startToken.pos + 2, _token.line.line, _token.pos);
-                    _token.line = startToken.line;
-                    _token.pos = startToken.pos;
+            while (_tokenStringStack.length > 0) {
+                // possible token string end
+                Tok startToken = _tokenStringStack[0];
+                nextTokenRaw();
+                if (_tokenStringStack.length == 0 || _token.id == TokId.eof) {
+                    // closed string token
+                    int type = TokId.str_unknown;
+                    if (_token.id == TokId.op_token_string_end_8)
+                        type = TokId.str_8;
+                    else if (_token.id == TokId.op_token_string_end_16)
+                        type = TokId.str_16;
+                    else if (_token.id == TokId.op_token_string_end_32)
+                        type = TokId.str_32;
+                    if (_stringTokenMode == StringTokenMode.raw) {
+                        // including q{ and }
+                        _token.str = _source.rangeText(startToken.line.line, startToken.pos, _token.line.line, _token.pos + cast(int)_token.str.length);
+                        _token.line = startToken.line;
+                        _token.pos = startToken.pos;
+                    } else {
+                        // w/o q{ and }
+                        _token.str = _source.rangeText(startToken.line.line, startToken.pos + 2, _token.line.line, _token.pos);
+                        _token.line = startToken.line;
+                        _token.pos = startToken.pos;
+                    }
+                    _token.id = type;
+                    break;
                 }
-                _token.id = type;
-                break;
             }
+            if (_wantsWhiteSpaces || _token.type != TokType.whitespace)
+                break;
         }
         return _token;
     }

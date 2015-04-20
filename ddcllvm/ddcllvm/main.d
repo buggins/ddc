@@ -92,17 +92,7 @@ DOC"c
 
     }
 
-    long totalNew = 0;
-    long totalDparse = 0;
-    totalNew += benchmarkNewTokenizer();
-    totalDparse += benchmarkDParseTokenizer();
-    totalDparse += benchmarkDParseTokenizer();
-    totalNew += benchmarkNewTokenizer();
-    totalDparse += benchmarkDParseTokenizer();
-    totalNew += benchmarkNewTokenizer();
-    totalDparse += benchmarkDParseTokenizer();
-    totalNew += benchmarkNewTokenizer();
-    writeln("total time for newTokenizer=", totalNew, " dparse=", totalDparse);
+    runBenchmarks();
 
     if (!LLVM.loaded) {
 		writeln("Cannot load LLVM dll");

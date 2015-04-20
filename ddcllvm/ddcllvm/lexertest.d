@@ -59,67 +59,100 @@ TextLines parseFile(string fn, StrCache * identCache) {
     return s;
 }
 
-const(Token)[] parseFileWithDparse(string fn, StringCache * stringCache) {
-    const(Token)[] res;
+TextLines loadFile(string fn) {
     TextLines s = new TextLines();
-    SourceError err = s.loadFromFile(fn);
-    if (err != SourceError.None) {
-        writeln("loaded file ", fn, " error=", err, " bytes=", s.text.length, " lineCount=", s.lineCount, " format=", s.format.toString);
-    } else {
-        res = getTokensForParser(cast(ubyte[])s.text, LexerConfig(), stringCache);
+    SourceError res = s.loadFromFile(fn);
+    if (res != SourceError.None) {
+        writeln("loaded file ", fn, " error=", res, " bytes=", s.text.length, " lineCount=", s.lineCount, " format=", s.format.toString);
     }
-    return res;
+    return s;
 }
 
-TextLines[] parseAllFiles(string dir, StrCache * identCache) {
+Tok[] parseAllFiles(TextLines[] files, StrCache * identCache) {
+    Tok[] tokens;
+    foreach(s; files) {
+        bool fileInfoShown = false;
+        if (identCache) {
+            Utf8Tokenizer tokenizer;
+            tokenizer.init(identCache, s);
+            tokens ~= tokenizer.getTokensForParser();
+        }
+    }
+    return tokens;
+}
+
+TextLines[] loadAllFiles(string dir) {
     TextLines[] res;
     foreach(DirEntry e; dirEntries(dir, SpanMode.depth, true)) {
         if (e.isFile && e.name.endsWith(".d")) {
-            res ~= parseFile(e.name, identCache);
+            res ~= loadFile(e.name);
         }
     }
     return res;
 }
 
-const(Token)[][] parseAllFilesWithDparse(string dir, StringCache * identCache) {
-    const(Token)[][] res;
-    foreach(DirEntry e; dirEntries(dir, SpanMode.depth, true)) {
-        if (e.isFile && e.name.endsWith(".d")) {
-            res ~= parseFileWithDparse(e.name, identCache);
-        }
+const(Token)[] parseAllFilesWithDparse(TextLines[] files, StringCache * identCache) {
+    const(Token)[] res;
+    foreach(s; files) {
+        res ~= getTokensForParser(cast(ubyte[])s.text, LexerConfig(), identCache);
     }
     return res;
 }
 
-long benchmarkNewTokenizer() {
+long benchmarkNewTokenizer(TextLines[] files, StrCache * cache) {
     long duration = 0;
     version(Windows) {
         long startTs = currentTimeMillis;
-        TextLines[] res;
-        StrCache cache;
-        res ~= parseAllFiles(`C:\D\dmd2\src\phobos`, &cache);
-        res ~= parseAllFiles(`D:\projects\d\dlangui\src`, &cache);
-        res ~= parseAllFiles(`D:\projects\d\dlangide\src`, &cache);
-        res ~= parseAllFiles(`D:\projects\d\libdparse\src`, &cache);
+        Tok[] res = parseAllFiles(files, cache);
         long endTs = currentTimeMillis;
         duration = endTs - startTs;
-        writeln("new tokenizer, files parsed: ", res.length, " timeElapsedMs=", endTs - startTs);
+        writeln("new tokenizer, files parsed: ", files.length, " timeElapsedMs=", endTs - startTs, " token count:", res.length, " token bytes:", res[0].sizeof * res.length);
     }
     return duration;
 }
-long benchmarkDParseTokenizer() {
+
+long benchmarkDParseTokenizer(TextLines[] files, StringCache* cache) {
     long duration = 0;
     version(Windows) {
         long startTs = currentTimeMillis;
-        const(Token)[][] res;
-        StringCache* cache = new StringCache(StringCache.defaultBucketCount);
-        res ~= parseAllFilesWithDparse(`C:\D\dmd2\src\phobos`, cache);
-        res ~= parseAllFilesWithDparse(`D:\projects\d\dlangui\src`, cache);
-        res ~= parseAllFilesWithDparse(`D:\projects\d\dlangide\src`, cache);
-        res ~= parseAllFilesWithDparse(`D:\projects\d\libdparse\src`, cache);
+        const(Token)[] res = parseAllFilesWithDparse(files, cache);
         long endTs = currentTimeMillis;
         duration = endTs - startTs;
-        writeln("DParse tokenizer, files parsed: ", res.length, " timeElapsedMs=", endTs - startTs);
+        writeln("DParse tokenizer, files parsed: ", files.length, " timeElapsedMs=", endTs - startTs, " token count:", res.length, " token bytes:", res[0].sizeof * res.length);
     }
     return duration;
+}
+
+void runBenchmarks() {
+    TextLines[] res;
+    version(Windows) {
+        long startTs = currentTimeMillis;
+        res ~= loadAllFiles(`C:\D\dmd2\src\phobos`);
+        res ~= loadAllFiles(`D:\projects\d\dlangui\src`);
+        res ~= loadAllFiles(`D:\projects\d\dlangide\src`);
+        res ~= loadAllFiles(`D:\projects\d\libdparse\src`);
+        long endTs = currentTimeMillis;
+        writeln("files loaded: ", res.length, " timeElapsedMs=", endTs - startTs);
+    }
+
+    StringCache* cache = new StringCache(StringCache.defaultBucketCount);
+    StrCache newcache;
+
+    long totalNew = 0;
+    long totalDparse = 0;
+    totalNew += benchmarkNewTokenizer(res, &newcache);
+    totalDparse += benchmarkDParseTokenizer(res, cache);
+    totalDparse += benchmarkDParseTokenizer(res, cache);
+    totalNew += benchmarkNewTokenizer(res, &newcache);
+    totalDparse += benchmarkDParseTokenizer(res, cache);
+    totalNew += benchmarkNewTokenizer(res, &newcache);
+    totalDparse += benchmarkDParseTokenizer(res, cache);
+    totalNew += benchmarkNewTokenizer(res, &newcache);
+    totalDparse += benchmarkDParseTokenizer(res, cache);
+    totalNew += benchmarkNewTokenizer(res, &newcache);
+    totalDparse += benchmarkDParseTokenizer(res, cache);
+    totalNew += benchmarkNewTokenizer(res, &newcache);
+    totalDparse += benchmarkDParseTokenizer(res, cache);
+    totalNew += benchmarkNewTokenizer(res, &newcache);
+    writeln("total time for newTokenizer=", totalNew, " dparse=", totalDparse);
 }
