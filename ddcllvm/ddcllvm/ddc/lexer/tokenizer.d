@@ -44,6 +44,7 @@ enum CommentCode : uint {
     nested,
 }
 
+/// token type, high 4 bits of 32 bit uint
 enum TokType : uint {
     /// end of file
     eof = 0x00000000,
@@ -67,6 +68,12 @@ enum TokType : uint {
     op = 0x90000000,
     /// error
     error = 0xF0000000
+}
+
+/// token flags - bits 24..27 of uint
+enum TokFlag : uint {
+    none = 0x00000000,
+    tokenString = 0x01000000,
 }
 
 enum CharType : uint {
@@ -362,6 +369,15 @@ enum TokId : uint {
 	op_at = TokType.op | OpCode.AT, 		            //    @
 	op_eq_gt = TokType.op | OpCode.EQ_GT, 		        //    =>
 	op_sharp = TokType.op | OpCode.SHARP, 		        //    #
+	op_token_string_start = TokType.op | OpCode.TOKEN_STRING_START, //    q{ -- special op, for parsing token string content
+	op_token_string_end = TokType.op | OpCode.TOKEN_STRING_END, //    } -- special op, for parsing token string content
+	op_token_string_end_8 = TokType.op | OpCode.TOKEN_STRING_END_C, //    }c -- special op, for parsing token string content
+	op_token_string_end_16 = TokType.op | OpCode.TOKEN_STRING_END_W, //    }w -- special op, for parsing token string content
+	op_token_string_end_32 = TokType.op | OpCode.TOKEN_STRING_END_D, //    }d -- special op, for parsing token string content
+	TOKEN_STRING_END, 		//    }  -- special op code, matching TOKEN_STRING_START
+	TOKEN_STRING_END_C, 		//    }c  -- special op code, matching TOKEN_STRING_START
+	TOKEN_STRING_END_W, 		//    }w  -- special op code, matching TOKEN_STRING_START
+	TOKEN_STRING_END_D, 		//    }d  -- special op code, matching TOKEN_STRING_START
 }
 
 struct StringCache {
@@ -393,14 +409,25 @@ struct Tok {
     // 4 bytes
     /// holds both type[4bit] + code[28 bit]
     uint id; 
+    /// token type (bits 28..31)
     @property TokType type() const { return cast(TokType)(id & 0xF0000000); }
-    @property uint code() const { return (id & 0x0FFFFFFF); }
+    /// token code (bits 0..23)
+    @property uint code() const { return (id & 0x00FFFFFF); }
+    /// token flags bit set (bits 24..27)
+    @property uint flags() const { return (id & 0x0F000000); }
+    /// set token type
     @property void type(TokType t) {
         id = ((cast(uint)t) & 0xF0000000) | (id & 0x0FFFFFFF); 
     }
-    void setType(TokType t, uint code) {
-        id = ((cast(uint)t) & 0xF0000000) | (code & 0x0FFFFFFF); 
+    /// set token flag
+    @property void setFlag(TokFlag t) {
+        id = t | (id & 0xF0FFFFFF); 
     }
+    /// set token type and code
+    void setType(TokType t, uint code) {
+        id = ((cast(uint)t) & 0xF0000000) | (code & 0x00FFFFFF); 
+    }
+    
     // 4 bytes
     /// 0-based byte offset from beginning of utf-8 encoded line
     int pos;
@@ -1686,11 +1713,111 @@ struct Utf8Tokenizer {
     void parseTokenString() {
         // q{
         _pos += 2;
-        // TODO
+        updateTokenText();
+        _token.id = TokId.op_token_string_start;
+        handleTokenStringToken();
     }
 
-    /// parse next token
+    void parseCurlyOpen() {
+        // just curly open
+        _pos++;
+        updateTokenText();
+        _token.id = TokId.op_curl_open;
+        if (_tokenStringStack.length > 0)
+            handleTokenStringToken(); // put on stack if inside token string
+    }
+
+    void parseCurlyClose() {
+        if (wantTokenStringEnd()) {
+            // it's token string end
+            _pos++;
+            int type = TokId.op_token_string_end;
+            char ch = _pos < _lineLen ? _lineText[_pos] : 0;
+            if (ch == 'c' || ch == 'w' || ch == 'd') {
+                _pos++;
+                if (!isIdentMiddleChar(decodeChar())) {
+                    if (ch == 'c')
+                        type = TokId.op_token_string_end_8;
+                    else if (ch == 'w')
+                        type = TokId.op_token_string_end_16;
+                    else
+                        type = TokId.op_token_string_end_32;
+                } else {
+                    // back
+                    _pos--;
+                }
+            }
+            updateTokenText();
+            _token.id = type;
+            handleTokenStringToken();
+        } else {
+            // just curly close op
+            _pos++;
+            updateTokenText();
+            _token.id = TokId.op_curl_close;
+            if (_tokenStringStack.length > 0)
+                handleTokenStringToken();
+        }
+    }
+
+    private Tok[] _tokenStringStack;
+    /// returns true if } should be considered as token string end
+    private bool wantTokenStringEnd() {
+        return _tokenStringStack.length > 0 && _tokenStringStack[$ - 1].id == TokId.op_token_string_start;
+    }
+
+    void handleTokenStringToken() {
+        if (_token.id == TokId.op_token_string_start || _token.id == TokId.op_curl_open) {
+            // put { or q{ on stack
+            _tokenStringStack ~= _token;
+        } else if (_token.id == TokId.op_curl_close) {
+            if (_tokenStringStack.length > 0) {
+                _tokenStringStack.length--;
+            }
+        } else if (_token.id == TokId.op_token_string_end || _token.id == TokId.op_token_string_end_8 || _token.id == TokId.op_token_string_end_16 || _token.id == TokId.op_token_string_end_32) {
+            if (_tokenStringStack.length > 0) {
+                _tokenStringStack.length--;
+            }
+        }
+    }
+
+    /// parse next token (including token string and string literal concatenation support)
     Tok nextToken() {
+        // just pass token as is
+        nextTokenRaw();
+        while (_tokenStringStack.length > 0) {
+            // possible token string end
+            Tok startToken = _tokenStringStack[0];
+            nextTokenRaw();
+            if (_tokenStringStack.length == 0 || _token.id == TokId.eof) {
+                // closed string token
+                int type = TokId.str_unknown;
+                if (_token.id == TokId.op_token_string_end_8)
+                    type = TokId.str_8;
+                else if (_token.id == TokId.op_token_string_end_16)
+                    type = TokId.str_16;
+                else if (_token.id == TokId.op_token_string_end_32)
+                    type = TokId.str_32;
+                if (_stringTokenMode == StringTokenMode.raw) {
+                    // including q{ and }
+                    _token.str = _source.rangeText(startToken.line.line, startToken.pos, _token.line.line, _token.pos + cast(int)_token.str.length);
+                    _token.line = startToken.line;
+                    _token.pos = startToken.pos;
+                } else {
+                    // w/o q{ and }
+                    _token.str = _source.rangeText(startToken.line.line, startToken.pos + 2, _token.line.line, _token.pos);
+                    _token.line = startToken.line;
+                    _token.pos = startToken.pos;
+                }
+                _token.id = type;
+                break;
+            }
+        }
+        return _token;
+    }
+
+    /// parse next token, no string literals join, return internal token string tokens as tokens
+    Tok nextTokenRaw() {
         startToken();
         if (_pos >= _lineLen) {
             // whitespace or eof
@@ -1744,7 +1871,16 @@ struct Utf8Tokenizer {
             parseStringLiteral();
             return _token;
         }
-        
+        if (ch == '}') {
+            // special processing, for support of token strings
+            parseCurlyClose();
+            return _token;
+        }
+        if (ch == '{') {
+            // special processing, for support of token strings
+            parseCurlyOpen();
+            return _token;
+        }
 		if (ch == '0') {
 			if (ch2 == 'b' || ch2 == 'B') {
 				parseBinaryNumber();
@@ -1854,7 +1990,12 @@ enum OpCode : ubyte {
 	INV_EQ, 	//    ~=
 	AT, 		//    @
 	EQ_GT, 		//    =>
-	SHARP 		//    #
+	SHARP, 		//    #
+	TOKEN_STRING_START, 		//    q{  -- special op
+	TOKEN_STRING_END, 		//    }  -- special op code, matching TOKEN_STRING_START
+	TOKEN_STRING_END_C, 		//    }c  -- special op code, matching TOKEN_STRING_START
+	TOKEN_STRING_END_W, 		//    }w  -- special op code, matching TOKEN_STRING_START
+	TOKEN_STRING_END_D, 		//    }d  -- special op code, matching TOKEN_STRING_START
 };
 
 immutable dstring[] OP_CODE_STRINGS = [
@@ -1921,7 +2062,12 @@ immutable dstring[] OP_CODE_STRINGS = [
 	"~=",
 	"@",
 	"=>",
-	"#"
+	"#",
+	"q{",
+	"}", // end of token string, no type postfix (special token code)
+	"}c",// end of token string, char (special token code)
+	"}w",// end of token string, wchar (special token code)
+	"}d",// end of token string, dchar (special token code)
 ];
 
 dstring getOpNameD(OpCode op) pure nothrow {

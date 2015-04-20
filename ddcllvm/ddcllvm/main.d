@@ -41,6 +41,10 @@ int main(string[] args)
             0.1i,.5i,343_432e10i,3.5e-3i,432_6.5e+5i
             0.1fi,.5fi,343_432e10fi,3.5e-3fi,432_6.5e+5fi
             0.1Li,.5Li,343_432e10Li,3.5e-3Li,432_6.5e+5Li
+            q{TOKEN() STRING{}} q{one.
+                    more[token]
+                    *
+                    string}w
             x"f0 2e 5624"
             q"{bla bla [1] ex}"d q"/some text/"w q"DOC
 line 1
@@ -74,8 +78,10 @@ DOC"c
         TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.whitespace, 
         TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.whitespace, 
         TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.whitespace, 
-        TokId.str_unknown, TokId.whitespace, 
+        TokId.str_unknown, TokId.whitespace, TokId.str_16, TokId.whitespace,
+        TokId.str_unknown, TokId.whitespace,  //x"f0 2e 5624"
         TokId.str_32, TokId.whitespace, TokId.str_16, TokId.whitespace, TokId.str_8, TokId.whitespace,
+
         TokId.eof]);
 
     version(Windows) {
