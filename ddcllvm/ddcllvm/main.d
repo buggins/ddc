@@ -41,6 +41,7 @@ int main(string[] args)
             0.1i,.5i,343_432e10i,3.5e-3i,432_6.5e+5i
             0.1fi,.5fi,343_432e10fi,3.5e-3fi,432_6.5e+5fi
             0.1Li,.5Li,343_432e10Li,3.5e-3Li,432_6.5e+5Li
+            x"f0 2e 5624"
     }, [
         TokId.comment_single, TokId.whitespace, 
         TokId.comment_multi, TokId.whitespace, 
@@ -69,6 +70,7 @@ int main(string[] args)
         TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.whitespace, 
         TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.whitespace, 
         TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.whitespace, 
+        TokId.str_unknown, TokId.whitespace, 
         TokId.eof]);
 
     version(Windows) {

@@ -44,6 +44,3 @@ TextLines[] parseAllFiles(string dir) {
     }
     return res;
 }
-
-
-
