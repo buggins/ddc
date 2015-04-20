@@ -14,7 +14,7 @@ import ddc.lexer.tokenizer;
 
 int main(string[] args)
 {
-    
+    version(Windows) { //TokenizerTest
     testTokenizer(q{//some comment
         /******
          some text for multiline comment
@@ -27,6 +27,7 @@ int main(string[] args)
             'b'c
             'c'w
             'd'd
+            `\/`
             125
             12_785u
             125L
@@ -41,6 +42,7 @@ int main(string[] args)
             0.1i,.5i,343_432e10i,3.5e-3i,432_6.5e+5i
             0.1fi,.5fi,343_432e10fi,3.5e-3fi,432_6.5e+5fi
             0.1Li,.5Li,343_432e10Li,3.5e-3Li,432_6.5e+5Li
+            0x1_FFFFp3,0x1Ap-3L,0x2Bp+1f,0x234.543Fp0L
             q{TOKEN() STRING{}} q{one.
                     more[token]
                     *
@@ -64,6 +66,7 @@ DOC"c
         TokId.char_8, TokId.whitespace, 
         TokId.char_16, TokId.whitespace, 
         TokId.char_32, TokId.whitespace, 
+        TokId.str_unknown, TokId.whitespace, 
         TokId.int_default, TokId.whitespace, 
         TokId.int_unsigned, TokId.whitespace, 
         TokId.int_long, TokId.whitespace, 
@@ -78,20 +81,28 @@ DOC"c
         TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.op_comma, TokId.float_default_im, TokId.whitespace, 
         TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.whitespace, 
         TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.whitespace, 
+
+        TokId.float_default, TokId.op_comma, TokId.float_long, TokId.op_comma, TokId.float_short, TokId.op_comma, TokId.float_long, TokId.whitespace, 
+
         TokId.str_unknown, TokId.whitespace, TokId.str_16, TokId.whitespace,
         TokId.str_unknown, TokId.whitespace,  //x"f0 2e 5624"
         TokId.str_32, TokId.whitespace, TokId.str_16, TokId.whitespace, TokId.str_8, TokId.whitespace,
 
         TokId.eof]);
 
-    version(Windows) {
-        TextLines[] res;
-        res ~= parseAllFiles(`C:\D\dmd2\src\phobos`);
-        res ~= parseAllFiles(`D:\projects\d\dlangui\src`);
-        res ~= parseAllFiles(`D:\projects\d\dlangide\src`);
-        res ~= parseAllFiles(`D:\projects\d\libdparse\src`);
-        writeln("files parsed: ", res.length);
     }
+
+    long totalNew = 0;
+    long totalDparse = 0;
+    totalNew += benchmarkNewTokenizer();
+    totalDparse += benchmarkDParseTokenizer();
+    totalDparse += benchmarkDParseTokenizer();
+    totalNew += benchmarkNewTokenizer();
+    totalDparse += benchmarkDParseTokenizer();
+    totalNew += benchmarkNewTokenizer();
+    totalDparse += benchmarkDParseTokenizer();
+    totalNew += benchmarkNewTokenizer();
+    writeln("total time for newTokenizer=", totalNew, " dparse=", totalDparse);
 
     if (!LLVM.loaded) {
 		writeln("Cannot load LLVM dll");
@@ -99,6 +110,9 @@ DOC"c
         return 1;
     }
 
-    return fibo(args);
+    writeln("press any key");
+    readln();
+    return 0;
+    //return fibo(args);
 
 }

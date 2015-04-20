@@ -380,7 +380,7 @@ enum TokId : uint {
 	TOKEN_STRING_END_D, 		//    }d  -- special op code, matching TOKEN_STRING_START
 }
 
-struct StringCache {
+struct StrCache {
     private string[] _idToName;
     private uint[string] _nameToId;
     private uint _nextId = 1;
@@ -481,7 +481,7 @@ enum StringTokenMode {
 }
 
 struct Utf8Tokenizer {
-    private StringCache * _identCache;
+    private StrCache * _identCache;
     private TextLines _source;
     private const(SourceLine) * _line;
     private int _lineIndex;
@@ -497,7 +497,7 @@ struct Utf8Tokenizer {
     @property void stringTokenMode(StringTokenMode mode) { _stringTokenMode = mode; }
 
 
-    void init(StringCache * identCache, TextLines source) {
+    void init(StrCache * identCache, TextLines source) {
         _identCache = identCache;
         _source = source;
         _lineIndex = -1;
@@ -662,6 +662,7 @@ struct Utf8Tokenizer {
 					_pos += 2;
 					return OpCode.DIV_EQ;
 				}
+    			_pos += 1;
 				return OpCode.DIV;
 			//	DOT, 		//    .
 			//	DOT_DOT, 	//    ..
@@ -717,6 +718,7 @@ struct Utf8Tokenizer {
     				_pos += 2;
 					return OpCode.MINUS_MINUS;
 				}
+  				_pos += 1;
 				return OpCode.MINUS;
 			//	PLUS, 		//    +
 			//	PLUS_EQ, 	//    +=
@@ -959,6 +961,16 @@ struct Utf8Tokenizer {
             uint id = _identCache.intern(_token.str);
             _token.str = _identCache.get(id);
             _token.setType(TokType.ident, id);
+            if (_token.pos == 0 && _token.str.equal("Ddoc")) {
+                // Ddoc up to end of file
+                while(nextLine()) {
+                    // move to next line
+                }
+                int startLine = _token.line.line;
+                int startPos = _token.pos;
+                _pos = _lineLen;
+                _token.str = _source.rangeText(startLine, startPos, _line.line, _pos);
+            }
         }
     }
 
@@ -1007,7 +1019,7 @@ struct Utf8Tokenizer {
             }
             res = (res << 4) | digit;
         }
-        if (res >= 0x100000) // too big for unicode character
+        if (res >= 0x110000) // too big for unicode character
             errorFlag = true;
         return res;
     }
@@ -1151,7 +1163,7 @@ struct Utf8Tokenizer {
             bool lastBackSlash = false;
 			for (; i < _lineLen; i++) {
                 char ch = _lineText[i];
-                if (ch == '\\') {
+                if (ch == '\\' && !wysiwyg) {
                     if (lastBackSlash)
                         lastBackSlash = false;
                     else
@@ -1301,7 +1313,16 @@ struct Utf8Tokenizer {
             extendErrorWhileAlNum();
             return;
         }
-        parseIntegerSuffix();
+        if (ch == 'p')
+            parseDecFloatExponent();
+        else if (ch == '.') {
+            char ch2 = (_pos + 1 < _lineLen) ? _lineText[_pos + 1] : 0;
+            if (parseHexDigit(ch2) >= 0)
+                parseHexFloatSecondPart();
+            else
+                parseIntegerSuffix();
+        } else
+            parseIntegerSuffix();
     }
 	void parseOctNumber() {
         // 0[0..7]
@@ -1326,6 +1347,7 @@ struct Utf8Tokenizer {
         // [0..9]
         char ch;
         int digitCount = 0;
+
         while(_pos < _lineLen) {
             ch = _lineText[_pos];
             if (ch >= '0' && ch <= '9')
@@ -1346,14 +1368,16 @@ struct Utf8Tokenizer {
             return;
         }
         if (ch == '.') {
-            parseDecFloatSecondPart();
-            return;
+            if (ch2 >= '0' && ch2 <= '9') {
+                parseDecFloatSecondPart();
+                return;
+            }
         }
         if (ch == 'l' || ch == 'L' || ch == 'u' || ch == 'U') {
             parseIntegerSuffix();
             return;
         }
-        if (ch == 'f' || ch == 'L' || ch == 'i') {
+        if (ch == 'f' || ch == 'F' || ch == 'L' || ch == 'i' || ch == 'I') {
             parseDecFloatSuffix();
             return;
         }
@@ -1455,7 +1479,7 @@ struct Utf8Tokenizer {
         }
     }
     void parseDecFloatExponent() {
-        // current char is e or E
+        // current char is e or E (or p for hex float literal)
         _pos++;
         char ch = _pos < _lineLen ? _lineText[_pos] : 0;
         if (ch != '+' && ch != '-' && (ch < '0' || ch > '9')) {
@@ -1476,6 +1500,25 @@ struct Utf8Tokenizer {
         if (digitCount == 0) {
             _token.id = TokId.error_invalidFloatExponent;
             extendErrorWhileAlNum();
+            return;
+        }
+        parseDecFloatSuffix();
+    }
+	void parseHexFloatSecondPart() {
+        // current char is .
+        _pos++;
+        char ch;
+        int digitCount = 0;
+        while(_pos < _lineLen) {
+            ch = _lineText[_pos];
+            if (parseHexDigit(ch) >= 0)
+                digitCount++;
+            else if (ch != '_')
+                break;
+            _pos++;
+        }
+        if (ch == 'p') {
+            parseDecFloatExponent();
             return;
         }
         parseDecFloatSuffix();
@@ -1816,113 +1859,127 @@ struct Utf8Tokenizer {
         return _token;
     }
 
-    /// parse next token, no string literals join, return internal token string tokens as tokens
     Tok nextTokenRaw() {
+        nextTokenRawInternal();
+        return _token;
+    }
+
+    /// parse next token, no string literals join, return internal token string tokens as tokens
+    void nextTokenRawInternal() {
         startToken();
+        if (_line.line == 0) {
+            if (_lineText.startsWith("#!")) {
+                // remove script line
+                nextLine();
+                updateTokenText();
+                _token.id = TokId.comment_single; // single line comment
+                return;
+            }
+        }
         if (_pos >= _lineLen) {
             // whitespace or eof
             parseWhitespace();
-            return _token;
+            return;
         }
         char ch = _lineText[_pos];
         if (ch == 0x0020 || ch == 0x0009 || ch == 0x000B || ch == 0x000C) {
             parseWhitespace();
-            return _token;
+            return;
         }
         char ch2 = _pos + 1 < _lineLen ? _lineText[_pos + 1] : 0;
         char ch3 = _pos + 2 < _lineLen ? _lineText[_pos + 2] : 0;
         if (ch == '/' && ch2 == '/') {
             parseSingleLineComment();
-            return _token;
+            return;
         }
         if (ch == '/' && ch2 == '*') {
             parseMultilineComment();
-            return _token;
+            return;
         }
         if (ch == '/' && ch2 == '+') {
             parseNestedComment();
-            return _token;
+            return;
         }
         if (ch == 'x' && ch2 == '\"') {
             parseHexString();
-            return _token;
+            return;
         }
         if (ch == 'q' && ch2 == '\"') {
             parseDelimitedString();
-            return _token;
+            return;
         }
         if (ch == 'q' && ch2 == '{') {
             parseTokenString();
-            return _token;
+            return;
         }
         if (ch == '\"') {
             parseStringLiteral();
-            return _token;
+            return;
         }
         if (ch == '`') {
             parseStringLiteral();
-            return _token;
+            return;
         }
         if (ch == '\'') {
             parseCharacterLiteral();
-            return _token;
+            return;
         }
         if (ch == 'r' && ch2 == '\"') {
             parseStringLiteral();
-            return _token;
+            return;
         }
         if (ch == '}') {
             // special processing, for support of token strings
             parseCurlyClose();
-            return _token;
+            return;
         }
         if (ch == '{') {
             // special processing, for support of token strings
             parseCurlyOpen();
-            return _token;
+            return;
         }
 		if (ch == '0') {
 			if (ch2 == 'b' || ch2 == 'B') {
 				parseBinaryNumber();
-                return _token;
+                return;
             }
 			if (ch2 == 'x' || ch2 == 'X') {
 				parseHexNumber();
-                return _token;
+                return;
             }
 			if (ch2 >= '0' && ch2 <= '7') {
 				parseOctNumber();
-                return _token;
+                return;
             }
 			if (ch2 >= '0' && ch2 <= '9') {
 				parseDecNumber();
-                return _token;
+                return;
             }
 		}
 		if (ch >= '0' && ch <= '9') {
 			parseDecNumber();
-            return _token;
+            return;
         }
 		if (ch == '.' && ch2 >= '0' && ch2 <= '9') { // .123
 			parseDecFloatSecondPart();
-            return _token;
+            return;
         }
 
         OpCode op = detectOp();
         if (op != OpCode.NONE) {
             _token.setType(TokType.op, op);
             updateTokenText();
-            return _token;
+            return;
         }
         int nextPos;
         dchar dch = decodeChar(nextPos);
         if (isIdentStartChar(dch)) {
             _pos = nextPos;
             parseIdentOrKeyword();
-            return _token;
+            return;
         }
         errorToken();
-        return _token;
+        return;
     }
 }
 
@@ -2840,3 +2897,7 @@ __gshared static this() {
 }
 
 
+/// Returns timestamp in milliseconds since 1970 UTC similar to Java System.currentTimeMillis()
+@property long currentTimeMillis() {
+    return std.datetime.Clock.currStdTime / 10000;
+}
