@@ -10,6 +10,7 @@ import std.datetime;
 import std.conv : to;
 import std.utf;
 import std.math;
+import std.string : startsWith;
 import std.algorithm : equal;
 
 enum TokenType : ubyte {
@@ -97,6 +98,7 @@ enum TokError : uint {
     UnexpectedEofInComment,
     InvalidEscapeSequence,
     InvalidStringSuffix,
+    InvalidStringDelimiter,
     InvalidHexString,
     InvalidCharacterLiteral,
     InvalidIntegerLiteral,
@@ -124,6 +126,7 @@ enum TokId : uint {
     error_unexpectedEofInComment = TokType.error | TokError.UnexpectedEofInComment,
     error_invalidEscapeSequence = TokType.error | TokError.InvalidEscapeSequence,
     error_invalidStringSuffix = TokType.error | TokError.InvalidStringSuffix,
+    error_invalidStringDelimiter = TokType.error | TokError.InvalidStringDelimiter,
     error_invalidHexString = TokType.error | TokError.InvalidHexString,
     error_invalidCharacterLiteral = TokType.error | TokError.InvalidCharacterLiteral,
     error_invalidIntegerLiteral = TokType.error | TokError.InvalidIntegerLiteral,
@@ -1115,7 +1118,6 @@ struct Utf8Tokenizer {
 			_pos++;
 			delimiter = '\"';
 		}
-		dchar type = 0;
 		for (;;) {
 			int i = _pos;
 			int endPos = int.max;
@@ -1145,36 +1147,9 @@ struct Utf8Tokenizer {
 				break;
 			}
 		}
-		char t = 0;
-		if (_pos < _lineLen) {
-			char ch = _lineText[_pos];
-			if (ch == 'c' || ch == 'w' || ch == 'd') {
-				t = ch;
-                _pos++;
-                if (_pos < _lineLen) {
-                    dchar dch = decodeChar();
-                    if (isIdentMiddleChar(dch)) {
-                        updateTokenText();
-                        _token.id = TokId.error_invalidStringSuffix;
-                        return;
-                    }
-                }
-            } else {
-                dchar dch = decodeChar();
-                if (isIdentMiddleChar(dch)) {
-                    updateTokenText();
-                    _token.id = TokId.error_invalidStringSuffix;
-                    return;
-                }
-            }
-		}
-		if (t != 0) {
-			if (type != 0 && t != type) {
-				//return parserError("Cannot concatenate strings of different type", _sharedStringLiteralToken);
-                return;
-            }
-			type = t;
-		}
+		int type = parseStringLiteralSuffix();
+        if (type < 0)
+            return;
         updateTokenText();
         _token.setType(TokType.str, type);
         if (_stringTokenMode == StringTokenMode.raw) {
@@ -1191,6 +1166,33 @@ struct Utf8Tokenizer {
             // error in escape sequence
             _token.id = TokId.error_invalidEscapeSequence;
         }
+    }
+
+    int parseStringLiteralSuffix() {
+		int t = 0;
+		if (_pos < _lineLen) {
+			char ch = _lineText[_pos];
+			if (ch == 'c' || ch == 'w' || ch == 'd') {
+				t = ch;
+                _pos++;
+                if (_pos < _lineLen) {
+                    dchar dch = decodeChar();
+                    if (isIdentMiddleChar(dch)) {
+                        updateTokenText();
+                        _token.id = TokId.error_invalidStringSuffix;
+                        return -1;
+                    }
+                }
+            } else {
+                dchar dch = decodeChar();
+                if (isIdentMiddleChar(dch)) {
+                    updateTokenText();
+                    _token.id = TokId.error_invalidStringSuffix;
+                    return -1;
+                }
+            }
+		}
+        return t;
     }
 
     void parseCharacterLiteral() {
@@ -1563,7 +1565,122 @@ struct Utf8Tokenizer {
     void parseDelimitedString() {
         // q"
         _pos += 2;
-        // TODO
+        if (_pos >= _lineLen) {
+            _token.id = TokId.error_invalidStringDelimiter;
+            return;
+        }
+
+        char delimChar = _lineText[_pos];
+        char matchingChar = delimChar;
+
+        int nextPos = -1;
+        dchar dch = decodeChar(nextPos);
+
+        int contentStartLine = _line.line;
+        int contentStartPos = _pos + 1;
+        int contentEndLine = -1;
+        int contentEndPos = -1;
+
+        if (isIdentStartChar(dch)) {
+            string delimIdent;
+            int identStart = _pos;
+            // delimiter identifier
+            _pos = nextPos;
+            while (_pos < _lineLen) {
+                dch = decodeChar(nextPos);
+                if (!isIdentMiddleChar(dch)) {
+                    _token.id = TokId.error_invalidStringDelimiter;
+                    return;
+                }
+                _pos = nextPos;
+            }
+            // end of line after delimiter
+            delimIdent = _lineText[identStart .. _pos];
+            // go to next line (newline char is not included into string)
+            if (!nextLine()) {
+                updateTokenText();
+                _token.id = TokId.error_invalidStringDelimiter;
+                return;
+            }
+            delimChar = 0; // use delimIdent
+            contentStartLine = _line.line;
+            contentStartPos = _pos;
+            for(;;) {
+                // TODO: find matching ident
+                if (_lineText.startsWith(delimIdent)) {
+                    if (_lineLen > delimIdent.length && _lineText[delimIdent.length] == '\"') {
+                        contentEndLine = _line.line;
+                        contentEndPos = _pos;
+                        _pos = cast(int)(delimIdent.length) + 1;
+                        break;
+                    }
+                }
+                if (!nextLine())
+                    break;
+            }
+        } else {
+            switch (delimChar) {
+                case '[':
+                    matchingChar = ']';
+                    break;
+                case '(':
+                    matchingChar = ')';
+                    break;
+                case '<':
+                    matchingChar = '>';
+                    break;
+                case '{':
+                    matchingChar = '}';
+                    break;
+                default:
+                    matchingChar = delimChar;
+                    break;
+            }
+            _pos++;
+		    for (;;) {
+			    int i = _pos;
+			    for (; i + 1 < _lineLen; i++) {
+                    char ch = _lineText[i];
+                    char ch2 = _lineText[i + 1];
+                    if (ch == matchingChar && ch2 == '\"') {
+                        contentEndLine = _line.line;
+                        contentEndPos = i;
+                        _pos = i + 2;
+					    break;
+				    }
+			    }
+			    if (contentEndPos > 0) {
+				    // found end quote
+				    break;
+			    }
+			    // no quote by end of line
+			    if (!nextLine()) {
+				    // do we need to throw exception if eof comes before end of string?
+				    break;
+			    }
+		    }
+        }
+        // now _pos is end of literal, and content Start/End line / pos is content
+        if (contentEndLine < 0) {
+            updateTokenText();
+            // not found
+            _token.id = TokId.error_invalidStringDelimiter;
+            return;
+        }
+
+		int type = parseStringLiteralSuffix();
+        if (type < 0)
+            return; // invalid string literal suffix
+        _token.setType(TokType.str, type);
+
+        if (_stringTokenMode == StringTokenMode.raw) {
+            // include delimiters
+            updateTokenText();
+            return;
+        }
+
+        // text w/o delimiters
+        _token.str = _source.rangeText(contentStartLine, contentStartPos, contentEndLine, contentEndPos);
     }
 
     void parseTokenString() {

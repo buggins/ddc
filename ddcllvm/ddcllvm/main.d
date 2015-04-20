@@ -42,6 +42,10 @@ int main(string[] args)
             0.1fi,.5fi,343_432e10fi,3.5e-3fi,432_6.5e+5fi
             0.1Li,.5Li,343_432e10Li,3.5e-3Li,432_6.5e+5Li
             x"f0 2e 5624"
+            q"{bla bla [1] ex}"d q"/some text/"w q"DOC
+line 1
+line 2
+DOC"c
     }, [
         TokId.comment_single, TokId.whitespace, 
         TokId.comment_multi, TokId.whitespace, 
@@ -71,6 +75,7 @@ int main(string[] args)
         TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.op_comma, TokId.float_short_im, TokId.whitespace, 
         TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.op_comma, TokId.float_long_im, TokId.whitespace, 
         TokId.str_unknown, TokId.whitespace, 
+        TokId.str_32, TokId.whitespace, TokId.str_16, TokId.whitespace, TokId.str_8, TokId.whitespace,
         TokId.eof]);
 
     version(Windows) {
