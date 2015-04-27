@@ -146,13 +146,13 @@ void runBenchmarks() {
     totalNew += benchmarkNewTokenizer(res, &newcache);
     totalDparse += benchmarkDParseTokenizer(res, cache);
     totalNew += benchmarkNewTokenizer(res, &newcache);
-    totalDparse += benchmarkDParseTokenizer(res, cache);
-    totalNew += benchmarkNewTokenizer(res, &newcache);
-    totalDparse += benchmarkDParseTokenizer(res, cache);
-    totalNew += benchmarkNewTokenizer(res, &newcache);
-    totalDparse += benchmarkDParseTokenizer(res, cache);
-    totalNew += benchmarkNewTokenizer(res, &newcache);
-    totalDparse += benchmarkDParseTokenizer(res, cache);
-    totalNew += benchmarkNewTokenizer(res, &newcache);
+    //totalDparse += benchmarkDParseTokenizer(res, cache);
+    //totalNew += benchmarkNewTokenizer(res, &newcache);
+    //totalDparse += benchmarkDParseTokenizer(res, cache);
+    //totalNew += benchmarkNewTokenizer(res, &newcache);
+    //totalDparse += benchmarkDParseTokenizer(res, cache);
+    //totalNew += benchmarkNewTokenizer(res, &newcache);
+    //totalDparse += benchmarkDParseTokenizer(res, cache);
+    //totalNew += benchmarkNewTokenizer(res, &newcache);
     writeln("total time for newTokenizer=", totalNew, " dparse=", totalDparse);
 }

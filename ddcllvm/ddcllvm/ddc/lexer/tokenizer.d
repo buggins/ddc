@@ -27,6 +27,7 @@ enum CommentCode : uint {
     single,
     multi,
     nested,
+    scriptline,
 }
 
 /// token type, high 4 bits of 32 bit uint
@@ -112,6 +113,7 @@ enum TokId : uint {
     comment_single = TokType.comment | CommentCode.single,
     comment_multi = TokType.comment | CommentCode.multi,
     comment_nested = TokType.comment | CommentCode.nested,
+    comment_scriptline = TokType.comment | CommentCode.scriptline,
 
     error = TokType.error,
     error_invalidToken = TokType.error | TokError.InvalidToken,
@@ -388,6 +390,10 @@ struct StrCache {
     }
 }
 
+uint makeTokId(TokType t, uint code) {
+    return t | code;
+}
+
 // 20 - 32 bytes
 /// token structure
 struct Tok {
@@ -411,6 +417,12 @@ struct Tok {
     /// set token type and code
     void setType(TokType t, uint code) {
         id = ((cast(uint)t) & 0xF0000000) | (code & 0x00FFFFFF); 
+    }
+
+    @property bool isDocComment() {
+        if (type != TokType.comment)
+            return false;
+        return str.startsWith("/**") || str.startsWith("/++") || str.startsWith("///");
     }
     
     // 4 bytes
@@ -465,6 +477,15 @@ enum StringTokenMode {
     processed
 }
 
+enum CommentMode {
+    /// don't put comments into tokenizer output
+    none,
+    /// only put documentation comments into tokenizer output
+    docOnly,
+    /// put all comments into tokenizer output
+    all
+}
+
 struct Utf8Tokenizer {
     private StrCache * _identCache;
     private TextLines _source;
@@ -476,12 +497,18 @@ struct Utf8Tokenizer {
     private Tok _token;
 
     private StringTokenMode _stringTokenMode = StringTokenMode.processed;
+    private CommentMode _commentMode = CommentMode.all;
     private bool _wantsWhiteSpaces;
 
     /// string literal content processing mode
     @property StringTokenMode stringTokenMode() { return _stringTokenMode; }
     /// string literal content processing mode
     @property void stringTokenMode(StringTokenMode mode) { _stringTokenMode = mode; }
+
+    /// returns current comment mode
+    @property CommentMode commentMode() { return _commentMode; }
+    /// sets comment mode
+    @property void commentMode(CommentMode m) { _commentMode = m; }
 
     /// do we need to return whitespaces
     @property bool wantsWhiteSpaces() { return _wantsWhiteSpaces; }
@@ -1322,7 +1349,7 @@ struct Utf8Tokenizer {
             extendErrorWhileAlNum();
             return;
         }
-        if (ch == 'p')
+        if (ch == 'p' || ch == 'P')
             parseDecFloatExponent();
         else if (ch == '.') {
             char ch2 = (_pos + 1 < _lineLen) ? _lineText[_pos + 1] : 0;
@@ -1488,7 +1515,7 @@ struct Utf8Tokenizer {
         }
     }
     void parseDecFloatExponent() {
-        // current char is e or E (or p for hex float literal)
+        // current char is e or E (or p/P for hex float literal)
         _pos++;
         char ch = _pos < _lineLen ? _lineText[_pos] : 0;
         if (ch != '+' && ch != '-' && (ch < '0' || ch > '9')) {
@@ -1865,7 +1892,18 @@ struct Utf8Tokenizer {
                     break;
                 }
             }
-            if (_wantsWhiteSpaces || _token.type != TokType.whitespace)
+            TokType t = _token.type;
+            if (t == TokType.comment) {
+                if (_token.id == TokId.comment_scriptline)
+                    break; // always allow scriptline
+                if (_commentMode == CommentMode.none)
+                    continue;
+                if (_commentMode == CommentMode.all)
+                    break;
+                // Doc only mode
+                if (_token.isDocComment)
+                   break;
+            } else if (_wantsWhiteSpaces || _token.type != TokType.whitespace)
                 break;
         }
         return _token;
@@ -1884,7 +1922,7 @@ struct Utf8Tokenizer {
                 // remove script line
                 nextLine();
                 updateTokenText();
-                _token.id = TokId.comment_single; // single line comment
+                _token.id = TokId.comment_scriptline; // single line comment
                 return;
             }
         }

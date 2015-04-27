@@ -110,7 +110,7 @@
   <singleFileCompilation>0</singleFileCompilation>
   <oneobj>0</oneobj>
   <mscoff>0</mscoff>
-  <trace>0</trace>
+  <trace>1</trace>
   <quiet>0</quiet>
   <verbose>0</verbose>
   <vtls>0</vtls>
@@ -205,8 +205,10 @@
  <Folder name="ddcllvm">
   <Folder name="ddc">
    <Folder name="lexer">
+    <File path="ddc\lexer\ast.d" />
     <File path="ddc\lexer\exceptions.d" />
     <File path="ddc\lexer\linestream.d" />
+    <File path="ddc\lexer\parser.d" />
     <File path="ddc\lexer\textsource.d" />
     <File path="ddc\lexer\tokenizer.d" />
     <File path="ddc\lexer\unialpha.d" />
